@@ -144,6 +144,22 @@ end
     @test abs(cfo_est2 - cfo_true) < 0.02
 end
 
+@testset "Pulse shaping" begin
+    beta, span, sps = 0.5, 6, 4
+    rc = raised_cosine(beta, span, sps)
+    @test length(rc) == span * sps + 1
+    @test abs(sum(rc) - 1) < 1e-10  # unit DC gain
+
+    rrc = rrc_filter(beta, span, sps)
+    @test length(rrc) == span * sps + 1
+    @test abs(sum(abs2, rrc) - 1) < 1e-10  # unit energy
+
+    # Pulse shaping round-trip
+    syms = [1.0, -1.0, 1.0]
+    shaped = pulse_shape(syms, rc, sps)
+    @test length(shaped) == length(syms) * sps
+end
+
 @testset "BER metric" begin
     @test ber([0, 0, 0], [0, 0, 0]) == 0.0
     @test ber([0, 0, 0], [1, 1, 1]) == 1.0

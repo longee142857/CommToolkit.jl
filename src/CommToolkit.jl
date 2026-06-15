@@ -23,6 +23,9 @@ export
     ml_detect, zf_detect, mmse_detect, sic_detect,
     zf_precoder, svd_precoder,
     alamouti_encode, alamouti_decode_2x1, alamouti_decode_2x2,
+    # Visualization
+    raised_cosine, rrc_filter, pulse_shape,
+    plot_constellation, plot_eye_diagram, plot_pulse_response,
     # Metrics
     ber,
     # Utilities
@@ -66,6 +69,10 @@ include("mimo/channel.jl")
 include("mimo/detectors.jl")
 include("mimo/precoders.jl")
 include("mimo/stc.jl")
+
+# Visualization
+include("visualization/pulses.jl")
+include("visualization/plots.jl")
 
 # Metrics
 include("utils/metrics.jl")

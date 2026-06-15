@@ -8,7 +8,7 @@ function mimo_channel(n_tx::Int, n_rx::Int)
 end
 
 # Apply MIMO channel: y = H*x + n
-# noise_var is the variance per real dimension
+# noise_var is the total complex noise variance (variance per real dim = noise_var/2)
 function apply_mimo(x::Vector{ComplexF64}, H::Matrix{ComplexF64}, noise_var::Real)
     y = H * x
     noise = sqrt(noise_var / 2) * (randn(length(y)) + im * randn(length(y)))
