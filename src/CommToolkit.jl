@@ -18,6 +18,11 @@ export
     interpolate_channel,
     # OFDM Sync
     sto_estimate, cfo_estimate, cfo_correct, ofdm_sync,
+    # MIMO
+    mimo_channel, apply_mimo,
+    ml_detect, zf_detect, mmse_detect, sic_detect,
+    zf_precoder, svd_precoder,
+    alamouti_encode, alamouti_decode_2x1, alamouti_decode_2x2,
     # Metrics
     ber,
     # Utilities
@@ -55,6 +60,12 @@ include("ofdm/transmitter.jl")
 include("ofdm/channel.jl")
 include("ofdm/receiver.jl")
 include("ofdm/sync.jl")
+
+# MIMO
+include("mimo/channel.jl")
+include("mimo/detectors.jl")
+include("mimo/precoders.jl")
+include("mimo/stc.jl")
 
 # Metrics
 include("utils/metrics.jl")

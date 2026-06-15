@@ -150,4 +150,33 @@ end
     @test ber([0, 1, 0], [1, 1, 0]) == 1/3
 end
 
+@testset "MIMO" begin
+    H = mimo_channel(2, 2)
+    @test size(H) == (2, 2)
+
+    # ML detection for 2x2 BPSK
+    constell = [1.0+0im, -1.0+0im]
+    x = [1.0+0im, -1.0+0im]
+    y = apply_mimo(x, H, 0.0)  # noiseless
+    x_est = ml_detect(y, H, constell)
+    @test x_est ≈ x
+
+    # ZF detection
+    x_zf = zf_detect(y, H)
+    @test x_zf ≈ x
+
+    # Alamouti 2x1 round-trip
+    h1, h2 = 0.5+0.3im, -0.2+0.8im
+    code = alamouti_encode(1.0+0im, -1.0+0im)
+    r1 = h1 * code[1, 1] + h2 * code[2, 1]
+    r2 = h1 * code[1, 2] + h2 * code[2, 2]
+    x1, x2 = alamouti_decode_2x1(r1, r2, h1, h2)
+    @test x1 ≈ 1.0+0im atol=1e-10
+    @test x2 ≈ -1.0+0im atol=1e-10
+
+    # ZF precoder
+    P = zf_precoder(H)
+    @test size(P) == (2, 2)
+end
+
 println("All tests passed!")
