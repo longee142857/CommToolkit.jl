@@ -1,0 +1,8 @@
+*.png
+*.jpg
+*.pdf
+Manifest.toml
+.vscode
+.syslab
+__pycache__
+*.pyc
