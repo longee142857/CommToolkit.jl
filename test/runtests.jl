@@ -210,6 +210,296 @@ end
     end
 end
 
+@testset "Soft demodulation" begin
+    # Closed form, Proakis and Salehi, 5th ed., §4.2: L = 2 Re(y) / σ², σ² = N0/2.
+    for approx in (:exact, :maxlog)
+        @test demodulate_soft([1.0, -0.5, 0.0], BPSK(), 0.5; approx=approx) ≈ [4.0, -2.0, 0.0]
+        @test demodulate_soft(ComplexF64[1.0 - 3im, -0.25 + 2im], BPSK(), 0.25; approx=approx) ≈
+              [8.0, -2.0]
+    end
+    @test demodulate_soft(Float64[], BPSK(), 1.0) == Float64[]
+
+    # Sign follows the bit map 0 ↦ +1, 1 ↦ −1, for every finite positive noise variance.
+    yb = [-1.5, -0.2, 0.2, 1.5]
+    Lb = demodulate_soft(yb, BPSK(), 0.8)
+    @test all(Lb[yb .< 0] .< 0)
+    @test all(Lb[yb .> 0] .> 0)
+
+    # |L| scales as 1/σ². Same convention as awgn: σ² = Eb / (2 Eb/N0) with Eb = 1.
+    y0 = [0.8]
+    vars = (1.0, 0.5, 0.2)
+    mags = [only(demodulate_soft(y0, BPSK(), σ2)) for σ2 in vars]
+    @test mags ≈ [1.6, 3.2, 8.0]
+    @test issorted(abs.(mags))
+
+    # Gray QPSK: exact = max-log = (√2 / σ²) · (Re y, Im y).
+    σ2 = 0.25
+    yq = [0.3 - 0.4im, -0.2 + 0.1im]
+    closed = Float64[]
+    for y in yq
+        append!(closed, (sqrt(2) / σ2) .* (real(y), imag(y)))
+    end
+    Lex = demodulate_soft(yq, QPSK(), σ2; approx=:exact)
+    Lmx = demodulate_soft(yq, QPSK(), σ2; approx=:maxlog)
+    @test Lex ≈ closed rtol = 1e-10
+    @test Lmx ≈ closed rtol = 1e-10
+
+    # Frozen 16-QAM point. Independent enumeration of the Gray lattice at σ² = 1/2
+    # (N0 = 1): see the max-log / log-sum-exp formulas in the demodulate_soft docstring.
+    y16 = ComplexF64[0.2 + 0.5im]
+    @test demodulate_soft(y16, QAM(16), 0.5; approx=:exact) ≈
+          [-0.41028054307236383, -0.7376431735811475, -1.0312550627687205, -0.4539223388071142] atol = 1e-9
+    @test demodulate_soft(y16, QAM(16), 0.5; approx=:maxlog) ≈
+          [-0.25298221281347033, -0.5470177871865296, -0.632455532033676, -0.16754446796632413] atol = 1e-9
+
+    # Square Gray QAM factors across I and Q. The first k/2 LLRs ignore Im(y).
+    for (M, σq) in ((16, 0.3), (64, 0.2))
+        k = bits_per_symbol(QAM(M))
+        half = k ÷ 2
+        for approx in (:exact, :maxlog)
+            L1 = demodulate_soft([0.2 + 0.5im], QAM(M), σq; approx=approx)
+            L2 = demodulate_soft([0.2 - 1.1im], QAM(M), σq; approx=approx)
+            L3 = demodulate_soft([-0.7 + 0.5im], QAM(M), σq; approx=approx)
+            @test L1[1:half] ≈ L2[1:half] rtol = 1e-10
+            @test L1[(half + 1):k] ≈ L3[(half + 1):k] rtol = 1e-10
+            @test !(L1[(half + 1):k] ≈ L2[(half + 1):k])
+        end
+    end
+
+    # At a constellation point the nearest neighbour dominates: hard slice matches demodulate.
+    for scheme in (BPSK(), QPSK(), QAM(4), QAM(16), QAM(64), QAM(256))
+        pts = constellation(scheme)
+        for approx in (:exact, :maxlog)
+            L = demodulate_soft(pts, scheme, 1e-6; approx=approx)
+            @test all(isfinite, L)
+            @test Int.(L .< 0) == demodulate(pts, scheme)
+        end
+    end
+
+    # Max-log hard decisions are minimum-distance decisions whenever the ML point is unique.
+    Random.seed!(RNG_SEED)
+    yml = randn(200) .+ im .* randn(200)
+    for scheme in (QPSK(), QAM(16), QAM(64))
+        pts = constellation(scheme)
+        L = demodulate_soft(yml, scheme, 0.4; approx=:maxlog)
+        hard = demodulate(yml, scheme)
+        @test Int.(L .< 0) == hard
+    end
+
+    # 16-QAM exact |LLR| grows as σ² falls, for a symbol sitting on a constellation point.
+    p0 = constellation(QAM(16))[1:1]
+    prev = zeros(4)
+    for σ2 in (0.2, 0.1, 0.05, 0.02)
+        mag = abs.(demodulate_soft(p0, QAM(16), σ2; approx=:exact))
+        @test all(mag .> prev)
+        prev = mag
+    end
+    # Max-log magnitude is exactly proportional to 1/N0.
+    Lm1 = demodulate_soft(y16, QAM(16), 0.4; approx=:maxlog)
+    Lm2 = demodulate_soft(y16, QAM(16), 0.1; approx=:maxlog)
+    @test Lm2 ≈ 4 .* Lm1 rtol = 1e-10
+
+    # Conditional law of the BPSK LLR. Bit 0: y ∼ N(1, σ²), L = 2y/σ² ∼ N(2/σ², 4/σ²).
+    Random.seed!(RNG_SEED)
+    σb = 0.5
+    nb = 20_000
+    ybit = 1 .+ sqrt(σb) .* randn(nb)
+    Lbmc = demodulate_soft(ybit, BPSK(), σb)
+    μb = 2 / σb
+    σLb = 2 / sqrt(σb)
+    kmed = count(<(μb), Lbmc)
+    ktail = count(<(μb - σLb), Lbmc)
+    lo_m, hi_m = clopper_pearson(kmed, nb, BER_ALPHA)
+    lo_t, hi_t = clopper_pearson(ktail, nb, BER_ALPHA)
+    @test lo_m <= 0.5 <= hi_m
+    @test lo_t <= qfunc(1.0) <= hi_t
+
+    # Gray QPSK in-phase bit, transmitted 0: L ∼ N(1/σ², 2/σ²).
+    Random.seed!(RNG_SEED)
+    nq = 20_000
+    a = 1 / sqrt(2)
+    yI = a .+ sqrt(σb) .* randn(nq) .+ im .* (a .+ sqrt(σb) .* randn(nq))
+    LI = demodulate_soft(yI, QPSK(), σb)[1:2:end]
+    μI = 1 / σb
+    σLI = sqrt(2 / σb)
+    lo_q, hi_q = clopper_pearson(count(<(μI), LI), nq, BER_ALPHA)
+    lo_qs, hi_qs = clopper_pearson(count(<(μI - σLI), LI), nq, BER_ALPHA)
+    @test lo_q <= 0.5 <= hi_q
+    @test lo_qs <= qfunc(1.0) <= hi_qs
+
+    # awgn's σ² = Eb / (2 Eb/N0). Positional BPSK uses Eb = 1. The LLR of a
+    # noise-free +1 is 2/σ²; symbols that actually passed through awgn must
+    # follow the same conditional law, which locks the two calibrations together.
+    snr_db = 0.0
+    σ_awgn = 1 / (2 * 10^(snr_db / 10))
+    @test only(demodulate_soft([1.0], BPSK(), σ_awgn)) ≈ 2 / σ_awgn
+    Random.seed!(RNG_SEED)
+    ncal = 20_000
+    rxcal = awgn(modulate(zeros(Int, ncal), BPSK()), snr_db, 1)
+    Lcal = demodulate_soft(rxcal, BPSK(), σ_awgn)
+    μcal = 2 / σ_awgn
+    σLcal = 2 / sqrt(σ_awgn)
+    lo_c, hi_c = clopper_pearson(count(<(μcal), Lcal), ncal, BER_ALPHA)
+    lo_cs, hi_cs = clopper_pearson(count(<(μcal - σLcal), Lcal), ncal, BER_ALPHA)
+    @test lo_c <= 0.5 <= hi_c
+    @test lo_cs <= qfunc(1.0) <= hi_cs
+
+    @test_throws ArgumentError demodulate_soft([1.0], BPSK(), 0.0)
+    @test_throws ArgumentError demodulate_soft([1.0], BPSK(), -0.1)
+    @test_throws ArgumentError demodulate_soft([1.0], BPSK(), Inf)
+    @test_throws ArgumentError demodulate_soft([1.0 + 0im], QPSK(), 0.2; approx=:approx)
+    @test_throws ArgumentError demodulate_soft([0.1, -0.2], QPSK(), 0.2)
+    @test_throws ArgumentError demodulate_soft([0.1], QAM(16), 0.2)
+end
+
+@testset "Soft-input decoding" begin
+    Random.seed!(RNG_SEED)
+    # L = 1 − 2ĉ reproduces Hamming Viterbi, including the tie rule.
+    for n in (1, 7, 40)
+        bits = rand(0:1, n)
+        coded = conv_encode(bits)
+        for flips in (Int[], [1], [2, 5], [1, 4, 8, 9])
+            rx = copy(coded)
+            for i in flips
+                i <= length(rx) || continue
+                rx[i] ⊻= 1
+            end
+            llr = Float64.(1 .- 2 .* rx)
+            @test viterbi_decode(llr) == viterbi_decode(rx)
+            @test viterbi_decode(1000 .* llr) == viterbi_decode(rx)
+        end
+    end
+
+    bits = rand(0:1, 32)
+    coded = conv_encode(bits)
+    strong = 30 .* Float64.(1 .- 2 .* coded)
+    @test viterbi_decode(strong) == bits
+    Le = bcjr_decode(strong)
+    @test length(Le) == length(bits)
+    @test Int.(Le .< 0) == bits
+    @test all(abs.(Le) .> 20)
+
+    # Tie on every branch: input 0 is written first, so the survivor is the zero word.
+    @test viterbi_decode(zeros(2 * (15 + 2))) == zeros(Int, 15)
+
+    # Free-distance event of the (7, 5) code: input 1,0,0 produces coded 11 10 11,
+    # and the two tail bits stay 0 once the encoder has returned to state 0.
+    event = conv_encode([1, 0, 0])
+    @test event == [1, 1, 1, 0, 1, 1, 0, 0, 0, 0]
+    @test viterbi_decode(Float64.(1 .- 2 .* event)) == [1, 0, 0]
+
+    # Uninformative channel, uniform prior: every information bit has APP LLR 0.
+    @test bcjr_decode(zeros(2 * (6 + 2))) ≈ zeros(6) atol = 1e-9
+
+    # Brute-force MAP on the terminated code. n = 8 information bits, 256 codewords.
+    function brute_force_app(llr::Vector{Float64}, apriori::Vector{Float64})
+        n = length(apriori)
+        acc0 = fill(-Inf, n)
+        acc1 = fill(-Inf, n)
+        for mask in 0:(2^n - 1)
+            info = [(mask >> (k - 1)) & 1 for k in 1:n]
+            coded = conv_encode(info)
+            logp = 0.0
+            @inbounds for i in eachindex(coded)
+                logp += 0.5 * (1 - 2 * coded[i]) * llr[i]
+            end
+            @inbounds for k in 1:n
+                logp += 0.5 * (1 - 2 * info[k]) * apriori[k]
+            end
+            @inbounds for k in 1:n
+                if info[k] == 0
+                    acc0[k] = acc0[k] == -Inf ? logp : max(acc0[k], logp) + log1p(exp(-abs(acc0[k] - logp)))
+                else
+                    acc1[k] = acc1[k] == -Inf ? logp : max(acc1[k], logp) + log1p(exp(-abs(acc1[k] - logp)))
+                end
+            end
+        end
+        return acc0 .- acc1
+    end
+
+    for trial in 1:4
+        info_n = 8
+        La = trial == 1 ? zeros(info_n) : randn(info_n)
+        ch = 3 .* randn(2 * (info_n + 2))
+        app = brute_force_app(ch, La)
+        @test bcjr_decode(ch; apriori=La) ≈ app .- La atol = 1e-6 rtol = 1e-6
+    end
+    ch0 = randn(2 * (4 + 2))
+    @test bcjr_decode(ch0) ≈ bcjr_decode(ch0; apriori=zeros(4)) atol = 1e-12
+
+    @test viterbi_decode(conv_encode(Int[])) == Int[]
+    @test bcjr_decode(zeros(4)) == Float64[]
+
+    @test_throws ArgumentError viterbi_decode(Float64[0.1, 0.2, 0.3])
+    @test_throws ArgumentError viterbi_decode(Float64[0.0, NaN])
+    @test_throws ArgumentError viterbi_decode(Float64[0.0, Inf])
+    @test_throws ArgumentError bcjr_decode(Float64[0.1])
+    @test_throws ArgumentError bcjr_decode(zeros(8); apriori=[0.0])
+    @test_throws ArgumentError bcjr_decode(zeros(8); apriori=[0.0, NaN])
+
+    # Soft union bound: free-distance term, monotone in Eb/N0, finite at the SNRs used below.
+    b4 = conv_soft_union_bound(10^(4 / 10))
+    b6 = conv_soft_union_bound(10^(6 / 10))
+    @test b4 > qfunc(sqrt(5 * 10^(4 / 10)))
+    @test b6 > qfunc(sqrt(5 * 10^(6 / 10)))
+    @test b6 < b4 < 1
+    @test b6 < ber_bpsk_awgn(10^(6 / 10))
+
+    # Same Eb/N0, same frames. Soft-decision PEP is Q(√(d γb)); hard decisions quantise first.
+    # Frame length 500 keeps the terminated-code BCJR cheap; the tail is 2 bits.
+    function coded_counts(snr_db::Float64; max_info::Int, frame::Int)
+        σ2 = 2.0 / (2 * 10^(snr_db / 10))
+        k_hard = 0
+        k_soft = 0
+        k_map = 0
+        n = 0
+        while n < max_info
+            bits = rand(0:1, frame)
+            rx = awgn(modulate(conv_encode(bits), BPSK()), snr_db; energy_per_bit=2.0)
+            hard_bits = demodulate(rx, BPSK())
+            llr = demodulate_soft(rx, BPSK(), σ2)
+            k_hard += count(!=(0), viterbi_decode(hard_bits) .- bits)
+            k_soft += count(!=(0), viterbi_decode(llr) .- bits)
+            k_map += count(!=(0), Int.(bcjr_decode(llr) .< 0) .- bits)
+            n += frame
+        end
+        return k_hard, k_soft, k_map, n
+    end
+
+    # 3 dB and 4 dB. Clopper–Pearson intervals (α = 10⁻⁴) of soft Viterbi and
+    # BCJR sit strictly under the hard-decision interval and under uncoded BPSK.
+    # The soft point estimate is compared with the truncated union bound: below
+    # it, and within a factor of ten. The interval itself is not required to lie
+    # under the bound — at 4 dB the bound is only about 1.5× the estimate, so a
+    # different `randn` stream can push the upper endpoint over it.
+    # Hard-decision coding gain at 5 dB and 6 dB is covered by the testset above.
+    for snr_db in (3.0, 4.0)
+        Random.seed!(RNG_SEED)
+        γb = 10^(snr_db / 10)
+        kh, ks, km, nbits = coded_counts(snr_db; max_info=200_000, frame=500)
+        lo_h, hi_h = clopper_pearson(kh, nbits, BER_ALPHA)
+        _, hi_s = clopper_pearson(ks, nbits, BER_ALPHA)
+        _, hi_m = clopper_pearson(km, nbits, BER_ALPHA)
+        bound = conv_soft_union_bound(γb)
+        hard_bound = conv_union_bound(qfunc(sqrt(γb)))
+        uncoded = ber_bpsk_awgn(γb)
+        p_soft = ks / nbits
+        p_map = km / nbits
+        @test kh >= 100
+        @test ks >= 20
+        @test km >= 20
+        @test hi_s < lo_h
+        @test hi_m < lo_h
+        @test hi_s < uncoded
+        @test hi_m < uncoded
+        @test p_soft < bound
+        @test p_map < bound
+        @test p_soft > bound / 10
+        @test p_map > bound / 10
+        @test hi_h <= hard_bound
+    end
+end
+
 @testset "Equalizers" begin
     h = [1.0, 0.5]
     syms = [1.0, -1.0, 1.0, -1.0]
