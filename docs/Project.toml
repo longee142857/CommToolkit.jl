@@ -1,0 +1,7 @@
+[deps]
+CommToolkit = "b0120378-1646-4a57-aae9-1dec7113c692"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+
+[compat]
+Documenter = "1.4"
+julia = "1.10"

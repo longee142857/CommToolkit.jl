@@ -1,7 +1,10 @@
 *.png
 *.jpg
 *.pdf
+!docs/src/assets/*.png
+docs/build/
 Manifest.toml
+*.cov
 .vscode
 .syslab
 __pycache__

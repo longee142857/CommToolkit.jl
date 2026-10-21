@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Julia ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['1.10', '1']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.version }}
+          arch: x64
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+        env:
+          GKSwstype: nul
+      - name: Coverage
+        run: |
+          julia -e '
+            using Pkg
+            Pkg.activate(temp=true)
+            Pkg.add("Coverage")
+            using Coverage
+            cov = process_folder("src")
+            append!(cov, process_folder("ext"))
+            LCOV.writefile("lcov.info", cov)
+            lh = lf = 0
+            for fc in cov
+              for count in fc.coverage
+                count === nothing && continue
+                lf += 1
+                count > 0 && (lh += 1)
+              end
+            end
+            pct = lf == 0 ? 0.0 : 100 * lh / lf
+            msg = "Line coverage (src + ext): $(round(pct; digits=2))% ($(lh)/$(lf))"
+            println(msg)
+            if haskey(ENV, "GITHUB_STEP_SUMMARY")
+              open(ENV["GITHUB_STEP_SUMMARY"], "a") do io
+                println(io, "## ", msg)
+              end
+            end
+            pct >= 85 || error(msg * " is below 85%")
+          '
+      - uses: codecov/codecov-action@v4
+        continue-on-error: true
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+          arch: x64
+      - uses: julia-actions/cache@v2
+      - name: Build API reference
+        run: |
+          julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+          julia --project=docs docs/make.jl
+        env:
+          GKSwstype: nul

@@ -1,7 +1,7 @@
 import CommToolkit: modulate, BPSK, QPSK, QAM, awgn
 import CommToolkit: raised_cosine, rrc_filter, pulse_shape
 import CommToolkit: plot_constellation, plot_eye_diagram, plot_pulse_response
-import CommToolkit: snr_db_to_linear
+import Plots
 
 # === 1. Pulse shapes ===
 rc = raised_cosine(0.35, 8, 8)
