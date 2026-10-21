@@ -1,11 +1,11 @@
 """
     CommToolkit
 
-Baseband communication-link simulations: Gray PSK/QAM with hard decisions and AWGN bit LLRs, AWGN and flat Rayleigh channels, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, and raised-cosine pulses.
+Baseband communication-link simulations: Gray PSK/QAM with hard decisions and AWGN bit LLRs, AWGN and flat Rayleigh channels, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, a teaching CRC / MCS / Chase-HARQ loop, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, and raised-cosine pulses.
 
-The public names are re-exported from the submodules `Modulation`, `Channel`, `Coding`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, and `Metrics`. Calling `using CommToolkit` does not load Plots; constellation, eye, and pulse figures are provided by the package extension `CommToolkitPlotsExt` after `using Plots`.
+The public names are re-exported from the submodules `Modulation`, `Channel`, `Coding`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, and `Metrics`. Calling `using CommToolkit` does not load Plots; constellation, eye, and pulse figures are provided by the package extension `CommToolkitPlotsExt` after `using Plots`.
 
-This package is a simulation library for checking algorithms against textbook formulas. It does not implement 3GPP NR, LTE, or an O-RAN fronthaul, and it is not a production physical-layer stack. The LDPC codes are short teaching constructions, not NR base graphs.
+This package is a simulation library for checking algorithms against textbook formulas. It does not implement 3GPP NR, LTE, or an O-RAN fronthaul, and it is not a production physical-layer stack. The LDPC codes are short teaching constructions, not NR base graphs. The MCS table and HARQ loop are a link-level teaching reference, not an NR scheduler.
 """
 module CommToolkit
 
@@ -13,6 +13,7 @@ include("metrics.jl")
 include("modulation.jl")
 include("channel.jl")
 include("coding.jl")
+include("link.jl")
 include("equalization.jl")
 include("ofdm.jl")
 include("mimo.jl")
@@ -27,6 +28,10 @@ using .Coding: conv_encode, viterbi_decode, bcjr_decode, distance_spectrum,
     gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H,
     ldpc_encode, ldpc_decode, ldpc_decode_details, ldpc_syndrome,
     ldpc_generator_matrix, ldpc_column_degrees, ldpc_row_degrees
+using .Link: CRC16_CCITT_POLY, crc16_ccitt, crc_append, crc_check,
+    MCS, mcs_convolutional, mcs_ldpc, teaching_mcs_table, spectral_efficiency,
+    ThresholdAMC, OuterLoopAMC, select_mcs, observe_acknack!, teaching_amc_thresholds,
+    estimate_esn0_db, LinkReport, simulate_link
 using .Equalization: zf_equalizer, zf_equalize, mmse_equalizer, mmse_equalize
 using .OFDM: OFDMParams, TDLChannel, modulation,
     generate_ofdm_symbol, ofdm_tx,
@@ -50,6 +55,10 @@ export
     gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H,
     ldpc_encode, ldpc_decode, ldpc_decode_details, ldpc_syndrome,
     ldpc_generator_matrix, ldpc_column_degrees, ldpc_row_degrees,
+    CRC16_CCITT_POLY, crc16_ccitt, crc_append, crc_check,
+    MCS, mcs_convolutional, mcs_ldpc, teaching_mcs_table, spectral_efficiency,
+    ThresholdAMC, OuterLoopAMC, select_mcs, observe_acknack!, teaching_amc_thresholds,
+    estimate_esn0_db, LinkReport, simulate_link,
     zf_equalizer, mmse_equalizer, zf_equalize, mmse_equalize,
     OFDMParams, TDLChannel,
     generate_ofdm_symbol, ofdm_tx, apply_multipath, apply_channel,
