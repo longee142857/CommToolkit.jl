@@ -3,6 +3,7 @@
 
 import CommToolkit: modulate, demodulate, ber, awgn, BPSK
 import Plots
+using SpecialFunctions
 
 # Simulation parameters
 n_bits = 10^6

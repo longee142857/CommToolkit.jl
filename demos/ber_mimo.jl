@@ -12,7 +12,9 @@ ber_mmse = Float64[]
 for snr in snr_range
     tx = rand(0:1, n_bits)
     syms = modulate(tx, BPSK())
-    noise_var = 1.0 / (2 * snr_db_to_linear(snr))
+    # apply_mimo takes the complex noise variance E[|n_i|^2] = N0.
+    # Unit-energy BPSK has Eb = 1, so N0 = 1 / (Eb/N0).
+    noise_var = 1.0 / snr_db_to_linear(snr)
 
     err_zf = 0
     err_mmse = 0
@@ -29,8 +31,8 @@ for snr in snr_range
         b_zf = demodulate([real(x_zf[1]), real(x_zf[2])], BPSK())
         b_mmse = demodulate([real(x_mmse[1]), real(x_mmse[2])], BPSK())
 
-        err_zf += sum(tx[2i-1:2i] .!= b_zf)
-        err_mmse += sum(tx[2i-1:2i] .!= b_mmse)
+        err_zf += sum(tx[i:(i + 1)] .!= b_zf)
+        err_mmse += sum(tx[i:(i + 1)] .!= b_mmse)
         total += 2
     end
 

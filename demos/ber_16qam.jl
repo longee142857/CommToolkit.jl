@@ -1,5 +1,6 @@
 import CommToolkit: modulate, demodulate, ber, awgn, QAM
 import Plots
+using SpecialFunctions
 
 n_bits = 2 * 10^6
 snr_db_range = 0:2:16
