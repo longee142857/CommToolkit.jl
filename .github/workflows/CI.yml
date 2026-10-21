@@ -38,13 +38,17 @@ jobs:
             cov = process_folder("src")
             append!(cov, process_folder("ext"))
             LCOV.writefile("lcov.info", cov)
-            lh = lf = 0
-            for fc in cov
-              for count in fc.coverage
-                count === nothing && continue
-                lf += 1
-                count > 0 && (lh += 1)
-              end
+            # `julia -e` is soft scope: a top-level `for` makes `lf += 1` a new local.
+            lh, lf = let
+                hit = total = 0
+                for fc in cov
+                    for count in fc.coverage
+                        count === nothing && continue
+                        total += 1
+                        count > 0 && (hit += 1)
+                    end
+                end
+                hit, total
             end
             pct = lf == 0 ? 0.0 : 100 * lh / lf
             msg = "Line coverage (src + ext): $(round(pct; digits=2))% ($(lh)/$(lf))"
