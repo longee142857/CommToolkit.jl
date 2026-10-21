@@ -1,6 +1,10 @@
 module Coding
 
 export conv_encode, viterbi_decode, bcjr_decode, distance_spectrum
+export LDPCCode, LDPCResult
+export gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H
+export ldpc_encode, ldpc_decode, ldpc_decode_details, ldpc_syndrome
+export ldpc_generator_matrix, ldpc_column_degrees, ldpc_row_degrees
 
 @doc raw"""
 Rate-1/2 feedforward convolutional code with constraint length ``K = 3`` (memory ``m = 2``, four states).
@@ -428,5 +432,7 @@ function distance_spectrum(dmax::Integer=16)
     end
     return ad, cd
 end
+
+include("ldpc.jl")
 
 end # module Coding

@@ -2,7 +2,7 @@
 
 API reference for the exported interface. This page is not a tutorial.
 
-The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE, it does not implement an O-RAN fronthaul, and it is not a production physical-layer stack.
+The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE, it does not implement an O-RAN fronthaul, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation.
 
 Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it.
 
@@ -40,6 +40,19 @@ conv_encode
 viterbi_decode
 bcjr_decode
 distance_spectrum
+LDPCCode
+LDPCResult
+gallager_ldpc
+array_ldpc
+hamming74_ldpc
+ldpc_from_H
+ldpc_encode
+ldpc_decode
+ldpc_decode_details
+ldpc_syndrome
+ldpc_generator_matrix
+ldpc_column_degrees
+ldpc_row_degrees
 ```
 
 ## Equalization
