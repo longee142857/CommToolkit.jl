@@ -213,19 +213,133 @@ function demodulate(syms::AbstractVector{<:Complex}, scheme::QAM)
 end
 
 @doc raw"""
-    demodulate_soft(symbols::AbstractVector{<:Real}, ::BPSK, noise_var::Real) -> Vector{Float64}
+    demodulate_soft(symbols, scheme::ModulationScheme, noise_var::Real; approx::Symbol=:exact) -> Vector{Float64}
 
-BPSK log-likelihood ratio for the bit map ``0 \mapsto +1``, ``1 \mapsto -1``,
+Bit log-likelihood ratios of Gray-labelled [`BPSK`](@ref), [`QPSK`](@ref), and square [`QAM`](@ref) observed in AWGN.
+
+# Arguments
+- `symbols`: real or complex samples for BPSK. Complex samples for QPSK and QAM. BPSK uses only the real part.
+- `scheme`: the modulator whose labelling [`demodulate`](@ref) inverts.
+- `noise_var`: variance ``\sigma^2 = N_0/2`` of one real noise component. Finite and positive. This is the variance added by `awgn`:
 
 ```math
-L(y) = \log\frac{p(y \mid b=0)}{p(y \mid b=1)} = \frac{2y}{\sigma^2},
+\sigma^2 = \frac{E_b}{2\,E_b/N_0}, \qquad N_0 = 2\sigma^2.
 ```
 
-where `noise_var` is the real noise variance ``\sigma^2 = N_0/2`` (Proakis and Salehi, 5th ed., §4.2). A positive LLR favours bit 0. `noise_var` must be positive.
+  The positional call `awgn(symbols, snr_db, bits_per_symbol(scheme))` has unit symbol energy, so ``E_b = 1/\texttt{bits\_per\_symbol}`` and ``\sigma^2 = 1/(2\,\texttt{bits\_per\_symbol}\,10^{\texttt{snr\_db}/10})``. For a complex symbol the total noise power is ``N_0``.
+- `approx`: `:exact` enumerates the constellation. `:maxlog` keeps the nearest point of each bit subset.
+
+# Returns
+Length ``\texttt{length(symbols)}\times k`` vector, ``k = `` [`bits_per_symbol`](@ref)`(scheme)`, in the bit order of [`demodulate`](@ref). The entry for bit ``b`` is
+
+```math
+L(b) = \log\frac{p(y\mid b=0)}{p(y\mid b=1)}.
+```
+
+A positive value favours bit 0. Symbol priors are equal, so these are channel LLRs (the bit prior ratio is 1).
+
+# Formula
+Write ``\mathcal{S}_i^{(0)}`` and ``\mathcal{S}_i^{(1)}`` for the points whose label has 0 or 1 in bit position ``i`` (MSB first). With total noise power ``N_0``,
+
+```math
+p(y\mid s)\propto\exp\bigl(-|y-s|^2/N_0\bigr).
+```
+
+Exact marginalisation:
+
+```math
+L_i(y)=\log\sum_{s\in\mathcal{S}_i^{(0)}}\exp\bigl(-|y-s|^2/N_0\bigr)
+-\log\sum_{s\in\mathcal{S}_i^{(1)}}\exp\bigl(-|y-s|^2/N_0\bigr).
+```
+
+Max-log approximation (each sum replaced by its largest term):
+
+```math
+L_i(y)\approx\frac{1}{N_0}\Bigl(\min_{s\in\mathcal{S}_i^{(1)}}|y-s|^2-\min_{s\in\mathcal{S}_i^{(0)}}|y-s|^2\Bigr).
+```
+
+For BPSK, ``0\mapsto +1``, ``1\mapsto -1``, both expressions equal ``2\Re(y)/\sigma^2``. For Gray QPSK the two bits reduce to that expression on the real and imaginary parts with amplitude ``1/\sqrt{2}``, and exact and max-log agree. On square QAM the in-phase bits depend only on ``\Re(y)`` and the quadrature bits only on ``\Im(y)``.
+
+# References
+Proakis and Salehi, *Digital Communications*, 5th ed., §4.2 (binary AWGN likelihood ratio) and §5.2 (constellations and Gray labelling). The max-log replacement of the log-sum is the approximation in Robertson, Villebrun, and Hoeher, Proc. IEEE ICC, 1995, pp. 1009–1013.
 """
-function demodulate_soft(syms::AbstractVector{<:Real}, ::BPSK, noise_var::Real)
-    noise_var > 0 || throw(ArgumentError("noise_var must be positive, got $noise_var"))
-    return (2 .* syms) ./ float(noise_var)
+function demodulate_soft(syms::AbstractVector{<:Real}, scheme::ModulationScheme, noise_var::Real;
+                          approx::Symbol=:exact)
+    scheme isa BPSK || throw(ArgumentError(
+        "soft demodulation of $(typeof(scheme)) requires complex symbols",
+    ))
+    return demodulate_soft(ComplexF64.(syms), scheme, noise_var; approx=approx)
+end
+
+function demodulate_soft(syms::AbstractVector{<:Complex}, scheme::ModulationScheme, noise_var::Real;
+                          approx::Symbol=:exact)
+    _check_soft_args(noise_var, approx)
+    pts = constellation(scheme)
+    k = bits_per_symbol(scheme)
+    M = length(pts)
+    idx0 = [Int[] for _ in 1:k]
+    idx1 = [Int[] for _ in 1:k]
+    for label in 0:(M - 1)
+        for j in 1:k
+            bucket = ((label >> (k - j)) & 1) == 0 ? idx0[j] : idx1[j]
+            push!(bucket, label + 1)
+        end
+    end
+    invN0 = inv(2 * float(noise_var))
+    out = Vector{Float64}(undef, length(syms) * k)
+    scratch = Vector{Float64}(undef, M)
+    @inbounds for (i, y) in enumerate(syms)
+        yc = ComplexF64(y)
+        base = (i - 1) * k
+        if approx === :maxlog
+            for m in 1:M
+                scratch[m] = abs2(yc - pts[m])
+            end
+            for j in 1:k
+                d0 = Inf
+                d1 = Inf
+                for m in idx0[j]
+                    scratch[m] < d0 && (d0 = scratch[m])
+                end
+                for m in idx1[j]
+                    scratch[m] < d1 && (d1 = scratch[m])
+                end
+                out[base + j] = (d1 - d0) * invN0
+            end
+        else
+            for m in 1:M
+                scratch[m] = -abs2(yc - pts[m]) * invN0
+            end
+            for j in 1:k
+                out[base + j] = _logsumexp_at(scratch, idx0[j]) - _logsumexp_at(scratch, idx1[j])
+            end
+        end
+    end
+    return out
+end
+
+function _check_soft_args(noise_var::Real, approx::Symbol)
+    (isfinite(noise_var) && noise_var > 0) || throw(ArgumentError(
+        "noise_var must be finite and positive, got $noise_var",
+    ))
+    (approx === :exact || approx === :maxlog) || throw(ArgumentError(
+        "approx must be :exact or :maxlog, got $(repr(approx))",
+    ))
+    return nothing
+end
+
+function _logsumexp_at(metrics::Vector{Float64}, idx::Vector{Int})
+    m = -Inf
+    @inbounds for i in idx
+        metrics[i] > m && (m = metrics[i])
+    end
+    m == -Inf && return -Inf
+    m == Inf && return Inf
+    s = 0.0
+    @inbounds for i in idx
+        s += exp(metrics[i] - m)
+    end
+    return m + log(s)
 end
 
 end # module Modulation

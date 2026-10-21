@@ -7,6 +7,8 @@
 #   Cambridge, 2005, §6.3; also Proakis and Salehi, 5th ed., §13.3.
 # Hard-decision union bound: Proakis and Salehi, 5th ed., §8.2; Lin and Costello,
 #   Error Control Coding, 2nd ed., §12.3. c_d comes from Coding.distance_spectrum.
+# Soft-decision pairwise error on antipodal AWGN: Proakis and Salehi, 5th ed., §8.2,
+#   P2(d) = Q(sqrt(2 d R Eb/N0)) with R = 1/2.
 # Clopper–Pearson interval: Clopper and Pearson, Biometrika 26(4):404–413, 1934.
 
 using SpecialFunctions
@@ -79,6 +81,23 @@ end
 
 function _logbinom(n::Int, k::Int)
     return log(binomial(n, k))
+end
+
+"""Truncated soft-decision union bound at linear information-bit Eb/N0 = γb.
+
+Pairwise term `Q(√(2 d R γb))` with `R = 1/2`, i.e. `Q(√(d γb))`, times `c_d`.
+Proakis and Salehi, 5th ed., §8.2. The rate assumes `Es = 1` on coded BPSK and
+`awgn(..., energy_per_bit = 2)`.
+"""
+function conv_soft_union_bound(γb::Real; dmax::Int=24)
+    _, cd = distance_spectrum(dmax)
+    γb = float(γb)
+    s = 0.0
+    for d in 1:dmax
+        cd[d] == 0 && continue
+        s += cd[d] * qfunc(sqrt(d * γb))
+    end
+    return s
 end
 
 """Truncated hard-decision union bound using the trellis spectrum up to `dmax`."""

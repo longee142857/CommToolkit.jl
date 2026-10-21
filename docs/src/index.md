@@ -38,6 +38,7 @@ ber
 ```@docs
 conv_encode
 viterbi_decode
+bcjr_decode
 distance_spectrum
 ```
 

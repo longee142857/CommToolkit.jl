@@ -1,7 +1,7 @@
 """
     CommToolkit
 
-Baseband communication-link simulations: Gray PSK/QAM, AWGN and flat Rayleigh channels, a terminated ``K = 3`` convolutional code, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, and raised-cosine pulses.
+Baseband communication-link simulations: Gray PSK/QAM with hard decisions and AWGN bit LLRs, AWGN and flat Rayleigh channels, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, and raised-cosine pulses.
 
 The public names are re-exported from the submodules `Modulation`, `Channel`, `Coding`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, and `Metrics`. Calling `using CommToolkit` does not load Plots; constellation, eye, and pulse figures are provided by the package extension `CommToolkitPlotsExt` after `using Plots`.
 
@@ -22,7 +22,7 @@ using .Metrics: ber, snr_db_to_linear
 using .Modulation: ModulationScheme, BPSK, QPSK, QAM, modulate, demodulate,
     demodulate_soft, constellation, bits_per_symbol
 using .Channel: awgn, rayleigh_channel
-using .Coding: conv_encode, viterbi_decode, distance_spectrum
+using .Coding: conv_encode, viterbi_decode, bcjr_decode, distance_spectrum
 using .Equalization: zf_equalizer, zf_equalize, mmse_equalizer, mmse_equalize
 using .OFDM: OFDMParams, TDLChannel, modulation,
     generate_ofdm_symbol, ofdm_tx,
@@ -41,7 +41,7 @@ export
     ModulationScheme, BPSK, QPSK, QAM,
     modulate, demodulate, demodulate_soft, constellation, bits_per_symbol,
     awgn, rayleigh_channel,
-    conv_encode, viterbi_decode, distance_spectrum,
+    conv_encode, viterbi_decode, bcjr_decode, distance_spectrum,
     zf_equalizer, mmse_equalizer, zf_equalize, mmse_equalize,
     OFDMParams, TDLChannel,
     generate_ofdm_symbol, ofdm_tx, apply_multipath, apply_channel,
