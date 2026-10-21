@@ -1,11 +1,11 @@
 """
     CommToolkit
 
-Baseband communication-link simulations: Gray PSK/QAM with hard decisions and AWGN bit LLRs, AWGN and flat Rayleigh channels, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, and raised-cosine pulses.
+Baseband communication-link simulations: Gray PSK/QAM with hard decisions and AWGN bit LLRs, AWGN and flat Rayleigh channels, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, and raised-cosine pulses.
 
 The public names are re-exported from the submodules `Modulation`, `Channel`, `Coding`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, and `Metrics`. Calling `using CommToolkit` does not load Plots; constellation, eye, and pulse figures are provided by the package extension `CommToolkitPlotsExt` after `using Plots`.
 
-This package is a simulation library for checking algorithms against textbook formulas. It does not implement 3GPP NR, LTE, or an O-RAN fronthaul, and it is not a production physical-layer stack.
+This package is a simulation library for checking algorithms against textbook formulas. It does not implement 3GPP NR, LTE, or an O-RAN fronthaul, and it is not a production physical-layer stack. The LDPC codes are short teaching constructions, not NR base graphs.
 """
 module CommToolkit
 
@@ -22,7 +22,11 @@ using .Metrics: ber, snr_db_to_linear
 using .Modulation: ModulationScheme, BPSK, QPSK, QAM, modulate, demodulate,
     demodulate_soft, constellation, bits_per_symbol
 using .Channel: awgn, rayleigh_channel
-using .Coding: conv_encode, viterbi_decode, bcjr_decode, distance_spectrum
+using .Coding: conv_encode, viterbi_decode, bcjr_decode, distance_spectrum,
+    LDPCCode, LDPCResult,
+    gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H,
+    ldpc_encode, ldpc_decode, ldpc_decode_details, ldpc_syndrome,
+    ldpc_generator_matrix, ldpc_column_degrees, ldpc_row_degrees
 using .Equalization: zf_equalizer, zf_equalize, mmse_equalizer, mmse_equalize
 using .OFDM: OFDMParams, TDLChannel, modulation,
     generate_ofdm_symbol, ofdm_tx,
@@ -42,6 +46,10 @@ export
     modulate, demodulate, demodulate_soft, constellation, bits_per_symbol,
     awgn, rayleigh_channel,
     conv_encode, viterbi_decode, bcjr_decode, distance_spectrum,
+    LDPCCode, LDPCResult,
+    gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H,
+    ldpc_encode, ldpc_decode, ldpc_decode_details, ldpc_syndrome,
+    ldpc_generator_matrix, ldpc_column_degrees, ldpc_row_degrees,
     zf_equalizer, mmse_equalizer, zf_equalize, mmse_equalize,
     OFDMParams, TDLChannel,
     generate_ofdm_symbol, ofdm_tx, apply_multipath, apply_channel,
