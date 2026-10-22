@@ -113,6 +113,12 @@ zf_equalizer
 zf_equalize
 mmse_equalizer
 mmse_equalize
+lms_equalize
+DFECoefficients
+dfe_equalizer
+dfe_equalize
+zf_dfe
+mmse_dfe
 ```
 
 ## OFDM

@@ -1,5 +1,13 @@
 # 变更记录
 
+## 0.7.1
+
+符号率 LMS，以及和块 ZF / MMSE 同一卷积矩阵上的有限长块 DFE。不是 RLS，不是盲均衡，没有接到 MCS / HARQ 上。
+
+- LMS：`lms_equalize`。复基带约定是 ``\hat{y} = w^{\mathsf{T}} u``，``w \leftarrow w + \mu e u^*``；实信号上共轭是恒等。步长、抽头数、时延和训练序列由调用者给定。`tap_trajectory=true` 时另外返回每次监督更新之后的抽头。训练段之后抽头冻结。
+- DFE：`dfe_equalizer` 给出每个符号一行的前馈，以及严格下三角的反馈。`noise_var = 0` 是 ZF，正的有限噪声方差是 MMSE，Gram 矩阵与 `mmse_equalizer` 相同。`zf_dfe` / `mmse_dfe` 把反馈判决取成 `alphabet` 上的最近邻。`training` 覆盖到的位置改用已知符号，不经过切片。
+- 版本：已有均衡器的位置参数和返回值不变。这一刀补在 0.7.0 的块线性均衡旁边，不新开调制或信道族，所以记为补丁 0.7.1，而不是 0.8.0，也不升到 1.0。
+
 ## 0.7.0
 
 Gray M-PSK、DBPSK/DQPSK、平坦 Rice，以及理想 CSI 的 L 支路 MRC。不是 ``\pi/4``-DQPSK，没有 Jakes，没有接到 MCS / HARQ 上。
