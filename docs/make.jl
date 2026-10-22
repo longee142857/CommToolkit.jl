@@ -7,6 +7,7 @@ makedocs(;
         CommToolkit.Modulation,
         CommToolkit.Channel,
         CommToolkit.Coding,
+        CommToolkit.Interleaving,
         CommToolkit.Link,
         CommToolkit.Equalization,
         CommToolkit.OFDM,

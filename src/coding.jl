@@ -1,6 +1,7 @@
 module Coding
 
 export conv_encode, viterbi_decode, bcjr_decode, distance_spectrum
+export puncture_mask, puncture, depuncture
 export LDPCCode, LDPCResult
 export gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H
 export ldpc_encode, ldpc_decode, ldpc_decode_details, ldpc_syndrome
@@ -102,7 +103,7 @@ The soft decoder minimises, on the coded pair of a branch,
 \lambda(c_0,c_1) = -\bigl(L_0(1-2c_0)+L_1(1-2c_1)\bigr).
 ```
 
-For BPSK in AWGN, ``L_j = 2y_j/\sigma^2`` (`demodulate_soft`), so ``\lambda`` is an affine function, with positive slope, of the squared Euclidean distance. A common positive scale does not change the survivor. The same correlation metric is the soft-decision Viterbi metric of Lin and Costello, 2nd ed., §12.1, and of Hagenauer and Hoeher, Proc. IEEE GLOBECOM, 1989, pp. 1680–1686. Substituting ``L_j = 1-2\hat{c}_j`` reproduces hard Hamming decoding, including ties.
+For BPSK in AWGN, ``L_j = 2y_j/\sigma^2`` (`demodulate_soft`), so ``\lambda`` is an affine function, with positive slope, of the squared Euclidean distance. A common positive scale does not change the survivor. The same correlation metric is the soft-decision Viterbi metric of Lin and Costello, 2nd ed., §12.1, and of Hagenauer and Hoeher, Proc. IEEE GLOBECOM, 1989, pp. 1680–1686. Substituting ``L_j = 1-2\hat{c}_j`` reproduces hard Hamming decoding, including ties. ``L_j = 0`` adds nothing to ``\lambda``. That is the erasure [`depuncture`](@ref) writes for a punctured mother bit; the integer method has no erasure symbol.
 
 # Notes
 ``d_{\mathrm{free}} = 5``, so on a BSC every pattern of at most ``t = \lfloor(d_{\mathrm{free}}-1)/2\rfloor = 2`` coded-bit errors is correctable (Lin and Costello, 2nd ed., §12.1; Proakis and Salehi, 5th ed., §8.2).
@@ -247,7 +248,7 @@ Bahl, Cocke, Jelinek, and Raviv, IEEE Trans. Inf. Theory, 20(2):284–287, 1974,
 \log\gamma = \tfrac12 L_a(u)\,(1-2u) + \tfrac12\sum_{j=0}^{1} L(c_j)\,(1-2c_j).
 ```
 
-Terms independent of the branch cancel in the normalised forward and backward recursions. ``\alpha_0`` is concentrated on state 0. The encoder's two tail bits are fixed at 0 and ``\beta`` at the end of the block is concentrated on state 0, which is the terminated-code boundary condition. ``\alpha`` and ``\beta`` are normalised by their maximum at each step.
+Terms independent of the branch cancel in the normalised forward and backward recursions. ``\alpha_0`` is concentrated on state 0. The encoder's two tail bits are fixed at 0 and ``\beta`` at the end of the block is concentrated on state 0, which is the terminated-code boundary condition. ``\alpha`` and ``\beta`` are normalised by their maximum at each step. A channel LLR of 0, the value [`depuncture`](@ref) writes for a punctured bit, drops that bit from ``\gamma``.
 
 The split into a priori and extrinsic LLRs is the L-value decomposition of Hagenauer, Offer, and Papke, IEEE Trans. Inf. Theory, 42(2):429–445, 1996. This function does not iterate with an outer code.
 """
@@ -387,7 +388,7 @@ Both vectors are 1-based and of length `dmax`. Weights above `dmax` are dropped.
 a_d = 2^{d-5}, \qquad c_d = (d-4)\,2^{d-5} \quad (d \ge 5).
 ```
 
-Those coefficients are the classical spectrum of the ``(2,1,2)`` code (Lin and Costello, 2nd ed., §11.1 and the transfer-function examples in §11.2; Proakis and Salehi, 5th ed., §8.2). The enumeration, not the closed form, is what this function returns.
+Those coefficients are the classical spectrum of the ``(2,1,2)`` code (Lin and Costello, 2nd ed., §11.1 and the transfer-function examples in §11.2; Proakis and Salehi, 5th ed., §8.2). The enumeration, not the closed form, is what this function returns. The weights are for the unpunctured mother code. Punctured spectra are not enumerated.
 """
 function distance_spectrum(dmax::Integer=16)
     dmax = Int(dmax)
@@ -431,6 +432,152 @@ function distance_spectrum(dmax::Integer=16)
         A, B = An, Bn
     end
     return ad, cd
+end
+
+# Standard periodic keep-masks on the (g1, g2) stream. A 1 keeps the bit.
+# 2/3 and 3/4 are the Yasuda / IEEE 802.11 masks, not a dfree search for (7, 5).
+const _PUNCTURE_12 = (1, 1)
+const _PUNCTURE_23 = (1, 1, 1, 0)
+const _PUNCTURE_34 = (1, 1, 1, 0, 0, 1)
+
+@doc raw"""
+    puncture_mask(rate::Rational) -> Vector{Int}
+
+Periodic keep-mask taking the rate-1/2 `(g_1, g_2)` stream to `rate`. A 1 keeps the coded bit. [`conv_encode`](@ref) writes that order, tail included.
+
+- `1//2` → `[1, 1]`, nothing deleted.
+- `2//3` → `[1, 1, 1, 0]`, column-wise ``(g_1: 1\, 1),\ (g_2: 1\, 0)``.
+- `3//4` → `[1, 1, 1, 0, 0, 1]`, column-wise ``(g_1: 1\, 1\, 0),\ (g_2: 1\, 0\, 1)``.
+
+These are the puncturing patterns of Yasuda, Kashiki, and Hirata, IEEE Trans. Commun. 32(3):315–319, 1984, and the masks IEEE 802.11 applies to a rate-1/2 convolutional mother code. They are not a free-distance search for the `(7, 5)` generators. Any other rate, including a floating-point ratio, raises `ArgumentError`. Each call returns a fresh vector.
+
+The nominal rate is ``(1/2) \cdot P/W`` with mask length ``P`` and Hamming weight ``W``. On a terminated block the tail and a partial last period remain, so the true rate is the number of information bits divided by the number of kept bits.
+"""
+function puncture_mask(rate::Rational)
+    if rate == 1//2
+        return Int[_PUNCTURE_12...]
+    elseif rate == 2//3
+        return Int[_PUNCTURE_23...]
+    elseif rate == 3//4
+        return Int[_PUNCTURE_34...]
+    else
+        throw(ArgumentError("puncture mask is defined for 1//2, 2//3, and 3//4, got $rate"))
+    end
+end
+
+function puncture_mask(rate::Real)
+    throw(ArgumentError("puncture rate must be a Rational such as 2//3, got $(repr(rate))"))
+end
+
+function _puncture_mask(mask::AbstractVector{<:Integer})
+    isempty(mask) && throw(ArgumentError("puncture mask must be non-empty"))
+    out = Vector{Int}(undef, length(mask))
+    kept = 0
+    i = 0
+    for b in mask
+        (b == 0 || b == 1) || throw(ArgumentError("puncture mask entries must be 0 or 1, got $b"))
+        i += 1
+        out[i] = Int(b)
+        kept += Int(b)
+    end
+    kept > 0 || throw(ArgumentError("puncture mask must keep at least one position"))
+    return out
+end
+
+function _nkept(n::Int, mask::Vector{Int})
+    period = length(mask)
+    nfull, rem = divrem(n, period)
+    kept_period = 0
+    @inbounds for b in mask
+        kept_period += b
+    end
+    kept = nfull * kept_period
+    @inbounds for i in 1:rem
+        kept += mask[i]
+    end
+    return kept
+end
+
+@doc raw"""
+    puncture(x::AbstractVector, mask::AbstractVector{<:Integer}) -> Vector
+    puncture(x::AbstractVector, rate::Rational) -> Vector
+
+Delete every entry of `x` at which the periodic keep-mask is 0. `rate` is passed through [`puncture_mask`](@ref).
+
+`mask` entries are 0 or 1, and at least one entry is 1. The mask repeats from the first element of `x`. A trailing partial period uses the leading entries of `mask`. `x` is not modified. The result has the element type of `x`, so the same call punctures hard bits, symbols, or LLRs.
+"""
+function puncture(x::AbstractVector, mask::AbstractVector{<:Integer})
+    m = _puncture_mask(mask)
+    period = length(m)
+    out = Vector{eltype(x)}(undef, _nkept(length(x), m))
+    j = 0
+    i = 0
+    for v in x
+        i += 1
+        if m[mod1(i, period)] == 1
+            j += 1
+            @inbounds out[j] = v
+        end
+    end
+    return out
+end
+
+function puncture(x::AbstractVector, rate::Rational)
+    return puncture(x, puncture_mask(rate))
+end
+
+@doc raw"""
+    depuncture(y, mask, n_mother::Integer; fill=zero(eltype(y))) -> Vector
+    depuncture(y, rate::Rational, n_mother::Integer; fill=zero(eltype(y))) -> Vector
+
+Write `y` back into a vector of length `n_mother`, placing `fill` where the periodic keep-mask is 0. `length(y)` must be the number of entries [`puncture`](@ref) would keep from a vector of length `n_mother`. `rate` is passed through [`puncture_mask`](@ref).
+
+`n_mother` has to be supplied. Two mother lengths can share one punctured length when a partial period ends on deleted positions, so the punctured vector alone does not determine the mother length.
+
+For channel LLRs in the sign convention of [`viterbi_decode`](@ref), `fill = 0` is an erasure: the soft branch metric and the BCJR branch weight ignore that bit. Pass the restored vector to the soft method of `viterbi_decode` or to [`bcjr_decode`](@ref). The integer method of `viterbi_decode` treats every entry as a hard bit and has no erasure. Hard decisions on the kept bits are connected by
+
+```math
+L = 1 - 2\hat{c}
+```
+
+on those bits and `fill = 0` on the deleted ones, then calling the soft decoder. Filling hard zeros and calling the integer decoder does not implement erasure decoding.
+"""
+function depuncture(
+    y::AbstractVector,
+    mask::AbstractVector{<:Integer},
+    n_mother::Integer;
+    fill=zero(eltype(y)),
+)
+    m = _puncture_mask(mask)
+    n = Int(n_mother)
+    n >= 0 || throw(ArgumentError("mother length must be ≥ 0, got $n"))
+    expected = _nkept(n, m)
+    ny = length(y)
+    ny == expected || throw(ArgumentError(
+        "punctured length $ny does not match mother length $n (mask keeps $expected)",
+    ))
+    T = promote_type(eltype(y), typeof(fill))
+    out = Vector{T}(undef, n)
+    fill!(out, convert(T, fill))
+    src = eachindex(y)
+    j = 0
+    period = length(m)
+    @inbounds for i in 1:n
+        if m[mod1(i, period)] == 1
+            j += 1
+            out[i] = y[src[j]]
+        end
+    end
+    return out
+end
+
+function depuncture(
+    y::AbstractVector,
+    rate::Rational,
+    n_mother::Integer;
+    fill=zero(eltype(y)),
+)
+    return depuncture(y, puncture_mask(rate), n_mother; fill=fill)
 end
 
 include("ldpc.jl")

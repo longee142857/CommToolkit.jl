@@ -4,7 +4,7 @@ API reference for the exported interface. This page is not a tutorial.
 
 The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE, it does not implement an O-RAN fronthaul, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity.
 
-Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it.
+Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it.
 
 ```@docs
 CommToolkit
@@ -30,7 +30,11 @@ demodulate_soft
 snr_db_to_linear
 awgn
 rayleigh_channel
+block_rayleigh
+block_rayleigh_channel
 ber
+ser
+fer
 ```
 
 ## Coding
@@ -40,6 +44,9 @@ conv_encode
 viterbi_decode
 bcjr_decode
 distance_spectrum
+puncture_mask
+puncture
+depuncture
 LDPCCode
 LDPCResult
 gallager_ldpc
@@ -53,6 +60,16 @@ ldpc_syndrome
 ldpc_generator_matrix
 ldpc_column_degrees
 ldpc_row_degrees
+```
+
+## Interleaving
+
+Rectangular block interleaver. Not wired into the MCS table.
+
+```@docs
+CommToolkit.Interleaving
+block_interleave
+block_deinterleave
 ```
 
 ## Link

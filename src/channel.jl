@@ -3,7 +3,7 @@ module Channel
 import ..Modulation
 using ..Metrics: snr_db_to_linear
 
-export awgn, rayleigh_channel
+export awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel
 
 @doc raw"""
     awgn(symbols, snr_db::Real; energy_per_bit::Real=1.0)
@@ -86,6 +86,72 @@ end
 function rayleigh_channel(syms::AbstractVector, snr_db::Real, bits_per_symbol::Integer, perfect_csi::Bool)
     rx, h = rayleigh_channel(syms, snr_db, bits_per_symbol)
     return perfect_csi ? rx ./ h : rx
+end
+
+@doc raw"""
+    block_rayleigh(n::Integer, block_length::Integer) -> Vector{ComplexF64}
+
+Block-constant Rayleigh coefficients of length `n`. Samples inside one block are equal, and distinct blocks are independent:
+
+```math
+h \sim \mathcal{CN}(0, 1), \qquad \mathbb{E}[|h|^2] = 1.
+```
+
+Block ``b = 0, 1, \ldots`` occupies indices ``b \cdot \texttt{block\_length} + 1`` through the end of that block. The last block is shorter when `n` is not a multiple of `block_length`. `block_length == 1` is symbol-by-symbol fading, the same marginal law as [`rayleigh_channel`](@ref).
+
+Blocks are independent. There is no Doppler filter and no Jakes spectrum. The draws use `randn`, on the same global stream as `rayleigh_channel`.
+"""
+function block_rayleigh(n::Integer, block_length::Integer)
+    n = Int(n)
+    block_length = Int(block_length)
+    n >= 0 || throw(ArgumentError("n must be ≥ 0, got $n"))
+    block_length >= 1 || throw(ArgumentError("block_length must be ≥ 1, got $block_length"))
+    h = Vector{ComplexF64}(undef, n)
+    i = 1
+    while i <= n
+        g = (randn() + im * randn()) / sqrt(2)
+        stop = min(i + block_length - 1, n)
+        @inbounds for j in i:stop
+            h[j] = g
+        end
+        i = stop + 1
+    end
+    return h
+end
+
+@doc raw"""
+    block_rayleigh_channel(symbols, snr_db::Real, bits_per_symbol::Integer, block_length::Integer) -> (rx, h)
+
+Block Rayleigh fading, ``y = h x + n``, with `h` from [`block_rayleigh`](@ref).
+
+# Arguments
+- `symbols`: real or complex. Real inputs are promoted to complex. ``E_s = 1`` is assumed and is not estimated.
+- `snr_db`: ``E_b/N_0`` in decibels, the same positional convention as [`rayleigh_channel`](@ref). ``E_b = 1/\texttt{bits\_per\_symbol}``. `+Inf` adds no noise.
+- `bits_per_symbol`: passed to [`awgn`](@ref). Must be ≥ 1.
+- `block_length`: number of consecutive symbols that share one coefficient. This is not a perfect-CSI flag.
+
+# Returns
+The faded observation `rx` and the per-symbol coefficients `h` (constant on each block).
+
+# Coherent use
+Hard BPSK decisions with perfect CSI are `demodulate(real.(rx ./ h), BPSK())`. The division scales the noise on symbol ``i`` to variance ``\sigma^2/|h_i|^2``, with ``\sigma^2 = N_0/2`` from [`awgn`](@ref), so one scalar variance is the wrong input to [`Modulation.demodulate_soft`](@ref). The coherent BPSK LLR, in the sign convention of that function, is
+
+```math
+L_i = \frac{2\,\Re(h_i^* y_i)}{\sigma^2}.
+```
+
+Symbol-wise Rayleigh fading (`block_length == 1`) gives an interleaver nothing to spread. A block longer than one symbol is the case in which a block interleaver changes the burst pattern seen by a short convolutional code.
+"""
+function block_rayleigh_channel(
+    syms::AbstractVector,
+    snr_db::Real,
+    bits_per_symbol::Integer,
+    block_length::Integer,
+)
+    bits_per_symbol >= 1 || throw(ArgumentError("bits_per_symbol must be ≥ 1"))
+    syms_c = ComplexF64.(syms)
+    h = block_rayleigh(length(syms_c), block_length)
+    return awgn(syms_c .* h, snr_db, bits_per_symbol), h
 end
 
 end # module Channel
