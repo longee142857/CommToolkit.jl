@@ -1,7 +1,7 @@
 """
     CommToolkit
 
-Baseband communication-link simulations: Gray PSK/QAM with hard decisions and AWGN bit LLRs, AWGN, symbol-wise flat Rayleigh, and block-constant Rayleigh channels, a deterministic single-carrier FIR, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, puncturing of that mother code to nominal rates 2/3 and 3/4, a rectangular block interleaver, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, a teaching CRC / MCS / Chase-HARQ loop, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, raised-cosine pulses, a matched filter, and symbol-rate downsampling.
+Baseband communication-link simulations: Gray PSK/QAM (including ``M``-PSK) with hard decisions and AWGN bit LLRs, DBPSK/DQPSK differential detection, AWGN, symbol-wise flat Rayleigh and Rice, block-constant Rayleigh, ideal-CSI receive MRC, a deterministic single-carrier FIR, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, puncturing of that mother code to nominal rates 2/3 and 3/4, a rectangular block interleaver, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, a teaching CRC / MCS / Chase-HARQ loop, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, raised-cosine pulses, a matched filter, and symbol-rate downsampling.
 
 The public names are re-exported from the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, and `Metrics`. Calling `using CommToolkit` does not load Plots; constellation, eye, and pulse figures are provided by the package extension `CommToolkitPlotsExt` after `using Plots`.
 
@@ -22,9 +22,10 @@ include("mimo.jl")
 include("visualization.jl")
 
 using .Metrics: ber, ser, fer, snr_db_to_linear
-using .Modulation: ModulationScheme, BPSK, QPSK, QAM, modulate, demodulate,
+using .Modulation: ModulationScheme, BPSK, QPSK, PSK, DBPSK, DQPSK, QAM, modulate, demodulate,
     demodulate_soft, constellation, bits_per_symbol
 using .Channel: awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel,
+    rice_fading, rice_channel, mrc, mrc_channel,
     apply_fir, fir_channel
 using .Pulse: matched_filter, downsample_symbols
 using .Coding: conv_encode, viterbi_decode, bcjr_decode, distance_spectrum,
@@ -53,9 +54,10 @@ using .Visualization: raised_cosine, rrc_filter, pulse_shape,
     plot_constellation, plot_eye_diagram, plot_pulse_response
 
 export
-    ModulationScheme, BPSK, QPSK, QAM,
+    ModulationScheme, BPSK, QPSK, PSK, DBPSK, DQPSK, QAM,
     modulate, demodulate, demodulate_soft, constellation, bits_per_symbol,
     awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel,
+    rice_fading, rice_channel, mrc, mrc_channel,
     apply_fir, fir_channel,
     matched_filter, downsample_symbols,
     conv_encode, viterbi_decode, bcjr_decode, distance_spectrum,

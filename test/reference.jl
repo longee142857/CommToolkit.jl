@@ -5,6 +5,14 @@
 #   (average of the per-bit PAM error rates; erfc argument matches their normalisation).
 # Coherent BPSK in flat Rayleigh fading, perfect CSI: Goldsmith, Wireless Communications,
 #   Cambridge, 2005, §6.3; also Proakis and Salehi, 5th ed., §13.3.
+# Gray M-PSK: phase-tail sector probabilities, Proakis and Salehi, 5th ed., §4.2 and §5.2.
+#   The Craig form of the symbol error rate is the cross-check. The erfc expression is
+#   the nearest-neighbour approximation and is exact only for M = 4.
+# DBPSK: Pb = (1/2) exp(−Eb/N0), Proakis and Salehi, 5th ed., §4.5.
+# Gray DQPSK: Marcum-Q bit error rate, Proakis and Salehi, 5th ed., §4.5.
+# Coherent BPSK in flat Rice, perfect CSI: Craig integral of the Rician MGF,
+#   Proakis and Salehi, 5th ed., §13.3. K is linear.
+# Rayleigh MRC, coherent BPSK, L i.i.d. branches: Proakis and Salehi, 5th ed., §13.4.
 # Hard-decision union bound: Proakis and Salehi, 5th ed., §8.2; Lin and Costello,
 #   Error Control Coding, 2nd ed., §12.3. c_d comes from Coding.distance_spectrum.
 # Soft-decision pairwise error on antipodal AWGN: Proakis and Salehi, 5th ed., §8.2,
@@ -45,6 +53,179 @@ function ber_square_mqam(M::Int, γb::Real)
 end
 
 ber_bpsk_rayleigh(γb::Real) = 0.5 * (1 - sqrt(float(γb) / (1 + float(γb))))
+
+function _simpson(f, a::Real, b::Real, n::Int)
+    a = float(a)
+    b = float(b)
+    b == a && return 0.0
+    n += n % 2
+    h = (b - a) / n
+    s = f(a) + f(b)
+    for i in 1:(n - 1)
+        s += (isodd(i) ? 4 : 2) * f(a + i * h)
+    end
+    return s * h / 3
+end
+
+# P(phase of √γs + CN(0,1) noise exceeds φ), φ ∈ [−π, π].
+# Equivalent to (1/2π) ∫_0^{π−φ} exp(−γs sin²φ / sin²θ) dθ for φ ≥ 0,
+# which is the tail behind Craig's M-PSK symbol-error integral.
+function _phase_tail(φ::Real, γs::Real)
+    φ = float(φ)
+    γs = float(γs)
+    if φ <= -π
+        return 1.0
+    elseif φ >= π
+        return 0.0
+    elseif φ < 0
+        return 1.0 - _phase_tail(-φ, γs)
+    end
+    upper = π - φ
+    upper <= 0 && return 0.0
+    s2 = sin(φ)^2
+    integrand(θ) = begin
+        sθ = sin(θ)
+        if sθ == 0
+            return (γs == 0 || s2 == 0) ? 1.0 : 0.0
+        end
+        return exp(-γs * s2 / (sθ * sθ))
+    end
+    return _simpson(integrand, 0.0, upper, 2048) / (2π)
+end
+
+function _offset_prob(d::Int, M::Int, γs::Real)
+    lo = (d - 0.5) * 2π / M
+    hi = (d + 0.5) * 2π / M
+    while lo > π
+        lo -= 2π
+        hi -= 2π
+    end
+    while lo <= -π
+        lo += 2π
+        hi += 2π
+    end
+    if hi <= π
+        return _phase_tail(lo, γs) - _phase_tail(hi, γs)
+    end
+    return (_phase_tail(lo, γs) - _phase_tail(π, γs)) +
+           (_phase_tail(-π, γs) - _phase_tail(hi - 2π, γs))
+end
+
+"""P(nearest-phase decision is natural index tx+d), d = 0..M−1. Rows sum to 1."""
+function psk_offset_probs(M::Integer, γs::Real)
+    M = Int(M)
+    M >= 2 || throw(ArgumentError("M must be ≥ 2"))
+    return [_offset_prob(d, M, γs) for d in 0:(M - 1)]
+end
+
+"""Exact SER of coherent M-PSK from the phase sectors. γs is Es/N0."""
+function ser_mpsk(M::Integer, γs::Real)
+    return 1 - psk_offset_probs(M, γs)[1]
+end
+
+"""Craig SER of coherent M-PSK. γs is Es/N0. Proakis and Salehi, 5th ed., §5.2."""
+function ser_mpsk_craig(M::Integer, γs::Real)
+    M = Int(M)
+    γs = float(γs)
+    ψ = π / M
+    upper = (M - 1) * π / M
+    integrand(θ) = begin
+        sθ = sin(θ)
+        sθ == 0 && return 0.0
+        return exp(-γs * sin(ψ)^2 / (sθ * sθ))
+    end
+    return _simpson(integrand, 0.0, upper, 2048) / π
+end
+
+"""Exact average BER of binary-reflected Gray M-PSK. γb is Eb/N0, Es = log2(M) Eb."""
+function ber_mpsk_gray(M::Integer, γb::Real)
+    M = Int(M)
+    (M >= 2 && ispow2(M)) || throw(ArgumentError("M must be a power of two ≥ 2"))
+    γb = float(γb)
+    γb >= 0 || throw(ArgumentError("γb must be ≥ 0"))
+    k = trailing_zeros(M)
+    γs = k * γb
+    γs == 0 && return 0.5
+    p = psk_offset_probs(M, γs)
+    gray = [xor(m, m >> 1) for m in 0:(M - 1)]
+    acc = 0.0
+    for tx in 0:(M - 1), d in 0:(M - 1)
+        rx = mod(tx + d, M)
+        acc += count_ones(xor(gray[tx + 1], gray[rx + 1])) * p[d + 1]
+    end
+    return acc / (M * k)
+end
+
+"""Nearest-neighbour Gray M-PSK BER. Exact for M = 4; an approximation for M > 4."""
+function ber_mpsk_approx(M::Integer, γb::Real)
+    M = Int(M)
+    (M >= 4 && ispow2(M)) || throw(ArgumentError("M must be a power of two ≥ 4"))
+    k = float(trailing_zeros(M))
+    return erfc(sqrt(k * float(γb)) * sin(π / M)) / k
+end
+
+ber_dbpsk(γb::Real) = 0.5 * exp(-float(γb))
+
+"""First-order Marcum Q, Q₁(a, b) = ∫_b^∞ x exp(−(x−a)²/2) I₀(ax) e^{−ax} dx, via besselix."""
+function marcumq1(a::Real, b::Real)
+    a = float(a)
+    b = float(b)
+    (a >= 0 && b >= 0) || throw(ArgumentError("Marcum Q arguments must be ≥ 0"))
+    b == 0 && return 1.0
+    a == 0 && return exp(-0.5 * b * b)
+    lo = b
+    hi = max(a, b) + 12.0
+    integrand(x) = x * exp(-0.5 * (x - a)^2) * besselix(0, a * x)
+    return _simpson(integrand, lo, hi, 2000)
+end
+
+"""Gray DQPSK bit error rate. γb is Eb/N0 with Es = 2 Eb. Proakis and Salehi, 5th ed., §4.5."""
+function ber_dqpsk(γb::Real)
+    γb = float(γb)
+    γb >= 0 || throw(ArgumentError("γb must be ≥ 0"))
+    γb == 0 && return 0.5
+    isinf(γb) && return 0.0
+    s = sqrt(0.5)
+    a = sqrt(2 * γb * (1 - s))
+    b = sqrt(2 * γb * (1 + s))
+    # I₀(ab) exp(−(a²+b²)/2) = besselix(0, ab) exp(−(a−b)²/2)
+    bessel_term = besselix(0, a * b) * exp(-0.5 * (a - b)^2)
+    return marcumq1(a, b) - 0.5 * bessel_term
+end
+
+"""Coherent BPSK BER in flat Rice fading, perfect CSI. K is linear; γb is average Eb/N0."""
+function ber_bpsk_rice(K::Real, γb::Real)
+    K = float(K)
+    γb = float(γb)
+    (K >= 0 && γb >= 0) || throw(ArgumentError("K and γb must be ≥ 0"))
+    γb == 0 && return 0.5
+    isinf(γb) && return 0.0
+    isinf(K) && return ber_bpsk_awgn(γb)
+    integrand(θ) = begin
+        s2 = sin(θ)^2
+        den = (1 + K) * s2 + γb
+        den == 0 && return 0.0
+        return ((1 + K) * s2 / den) * exp(-K * γb / den)
+    end
+    return _simpson(integrand, 0.0, π / 2, 2048) / π
+end
+
+"""Coherent BPSK BER, L-branch i.i.d. Rayleigh MRC. γb is the average Eb/N0 per branch."""
+function ber_bpsk_mrc_rayleigh(L::Integer, γb::Real)
+    L = Int(L)
+    L >= 1 || throw(ArgumentError("L must be ≥ 1"))
+    γb = float(γb)
+    γb >= 0 || throw(ArgumentError("γb must be ≥ 0"))
+    isinf(γb) && return 0.0
+    μ = sqrt(γb / (1 + γb))
+    α = (1 - μ) / 2
+    β = (1 + μ) / 2
+    s = 0.0
+    for k in 0:(L - 1)
+        s += float(binomial(L - 1 + k, k)) * β^k
+    end
+    return α^L * s
+end
 
 # SpecialFunctions 2.9 returns `(x, 1 - x)` from `beta_inc_inv`; earlier 2.x releases
 # returned the quantile alone. Keep the first element either way.
