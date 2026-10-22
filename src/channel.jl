@@ -4,6 +4,7 @@ import ..Modulation
 using ..Metrics: snr_db_to_linear
 
 export awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel,
+    rice_fading, rice_channel, mrc, mrc_channel,
     apply_fir, fir_channel
 
 @doc raw"""
@@ -234,6 +235,186 @@ function fir_channel(
         "bits_per_symbol must be ≥ 1, got $bits_per_symbol",
     ))
     return fir_channel(signal, taps, snr_db; energy_per_bit=1.0 / bits_per_symbol)
+end
+
+function _rice_k(K::Real)
+    Kf = float(K)
+    (Kf >= 0 && !isnan(Kf)) || throw(ArgumentError(
+        "K must be the linear Rice factor ≥ 0, not decibels, got $K",
+    ))
+    return Kf
+end
+
+@doc raw"""
+    rice_fading(n::Integer, K::Real) -> Vector{ComplexF64}
+
+`n` i.i.d. flat Rice coefficients with unit average power and line-of-sight phase 0,
+
+```math
+h = \sqrt{\frac{K}{K+1}} + \sqrt{\frac{1}{K+1}}\, g, \qquad g \sim \mathcal{CN}(0, 1).
+```
+
+`K` is the **linear** power ratio ``P_{\mathrm{LOS}} / P_{\mathrm{scatter}}``. It is not in decibels; pass ``10^{K_{\mathrm{dB}}/10}``. ``\mathbb{E}[|h|^2] = 1`` for every finite `K`.
+
+- `K = 0` is ``\mathcal{CN}(0, 1)``, the same law and the same `randn` pattern as the coefficient draw inside [`rayleigh_channel`](@ref): all real parts, then all imaginary parts.
+- `K = Inf` is the constant `1`. No scatter is drawn, and the global random stream is not advanced.
+- `K < 0` or `NaN` is rejected. `n < 0` is rejected.
+
+There is no Doppler filter and no Jakes spectrum. Draws use `randn`.
+"""
+function rice_fading(n::Integer, K::Real)
+    n = Int(n)
+    n >= 0 || throw(ArgumentError("n must be ≥ 0, got $n"))
+    Kf = _rice_k(K)
+    if isinf(Kf)
+        return fill(ComplexF64(1), n)
+    end
+    los = sqrt(Kf / (Kf + 1))
+    sc = sqrt(1 / (2 * (Kf + 1)))
+    return los .+ sc .* (randn(n) .+ im .* randn(n))
+end
+
+@doc raw"""
+    rice_channel(symbols, snr_db::Real, bits_per_symbol::Integer; K::Real) -> (rx, h)
+    rice_channel(symbols, snr_db::Real, bits_per_symbol::Integer, perfect_csi::Bool; K::Real)
+
+Flat Rice fading, independent from symbol to symbol, then AWGN,
+
+```math
+y = h x + n,
+```
+
+with `h` from [`rice_fading`](@ref). Real `symbols` are promoted to complex. ``E_s = 1`` is assumed and is not estimated. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_b = 1/\texttt{bits\_per\_symbol}``. Because ``\mathbb{E}[|h|^2] = 1``, `snr_db` is the average ``E_b/N_0``. ``\mathrm{snr\_db} = +\infty`` disables the noise but still draws `h` (except when `K = Inf`, where `h` is identically 1 and no scatter is drawn).
+
+`K` is a required keyword. It is the linear Rice factor documented on [`rice_fading`](@ref), not a decibel value.
+
+# Returns
+- Without `perfect_csi`: `(rx, h)`, the faded observation and the coefficients.
+- `perfect_csi = true`: the zero-forced samples `rx ./ h`, and `h` is dropped. A coefficient that lands on 0 yields `NaN` in that entry.
+- `perfect_csi = false`: `rx` only, with no phase compensation.
+
+# Coherent BPSK
+With perfect CSI the conditional bit error rate is ``Q(\sqrt{2 |h|^2 \bar\gamma_b})``. Averaging over this `h` is the Rice integral used by the tests (Craig's representation of `Q` against the Rician moment-generating function; Proakis and Salehi, 5th ed., §13.3). `K = 0` reduces to the Rayleigh formula on [`rayleigh_channel`](@ref). `K = Inf` is ordinary AWGN.
+
+Zero-forcing scales the noise on symbol ``i`` to variance ``\sigma^2 / |h_i|^2``. One scalar variance is the wrong input to [`Modulation.demodulate_soft`](@ref). The coherent BPSK LLR is ``2\Re(h_i^* y_i) / \sigma^2``.
+"""
+function rice_channel(syms::AbstractVector, snr_db::Real, bits_per_symbol::Integer; K::Real)
+    bits_per_symbol >= 1 || throw(ArgumentError("bits_per_symbol must be ≥ 1"))
+    syms_c = ComplexF64.(syms)
+    h = rice_fading(length(syms_c), K)
+    return awgn(syms_c .* h, snr_db, bits_per_symbol), h
+end
+
+function rice_channel(
+    syms::AbstractVector,
+    snr_db::Real,
+    bits_per_symbol::Integer,
+    perfect_csi::Bool;
+    K::Real,
+)
+    rx, h = rice_channel(syms, snr_db, bits_per_symbol; K=K)
+    return perfect_csi ? rx ./ h : rx
+end
+
+@doc raw"""
+    mrc(y, h) -> Vector{ComplexF64}
+
+Maximum-ratio combining with ideal channel knowledge.
+
+`y` and `h` are `L × N` matrices, one column per symbol and one row per branch:
+
+```math
+y_{\ell,n} = h_{\ell,n}\, x_n + \text{noise}.
+```
+
+The combined sample is
+
+```math
+z_n = \frac{\sum_{\ell=1}^{L} h_{\ell,n}^{*}\, y_{\ell,n}}{\sum_{\ell=1}^{L} |h_{\ell,n}|^2}.
+```
+
+When the branch noises are i.i.d. circular Gaussian of per-dimension variance ``\sigma^2`` and the model above holds, ``z_n = x_n + n'_n`` with
+
+```math
+\mathrm{Var}(\Re n'_n) = \mathrm{Var}(\Im n'_n) = \sigma^2 \Big/ \sum_{\ell} |h_{\ell,n}|^2.
+```
+
+A hard demodulator written for the original constellation can take `z` directly. [`Modulation.demodulate_soft`](@ref) cannot: it expects one noise variance for the whole vector. The coherent BPSK LLR, in that function's sign convention, is
+
+```math
+L_n = \frac{2}{\sigma^2}\,\Re\sum_{\ell} h_{\ell,n}^{*}\, y_{\ell,n},
+```
+
+which uses the numerator before the normalisation above.
+
+`size(y)` must equal `size(h)`, and `L ≥ 1`. A column whose coefficients are all 0 yields `NaN`. Real matrices are promoted to complex. This is receive diversity with known gains. It is not Alamouti decoding, not a MIMO detector, and it does not estimate `h`.
+"""
+function mrc(y::AbstractMatrix{<:Number}, h::AbstractMatrix{<:Number})
+    size(y) == size(h) || throw(ArgumentError(
+        "y and h must have the same size, got $(size(y)) and $(size(h))",
+    ))
+    L, N = size(y)
+    L >= 1 || throw(ArgumentError("MRC needs at least one branch, got $L"))
+    z = Vector{ComplexF64}(undef, N)
+    @inbounds for n in 1:N
+        acc = 0.0 + 0.0im
+        den = 0.0
+        for ℓ in 1:L
+            hl = ComplexF64(h[ℓ, n])
+            acc += conj(hl) * ComplexF64(y[ℓ, n])
+            den += abs2(hl)
+        end
+        z[n] = acc / den
+    end
+    return z
+end
+
+@doc raw"""
+    mrc_channel(symbols, snr_db::Real, bits_per_symbol::Integer, L::Integer; K::Real=0) -> (z, h)
+
+`L`-branch receive diversity, flat fading, ideal-CSI maximum-ratio combining.
+
+Each branch observes the same unit-energy symbol through an independent coefficient from [`rice_fading`](@ref), then independent AWGN at the stated average ``E_b/N_0``. `K` is the linear Rice factor, default `0` (Rayleigh). It is not in decibels. ``\mathbb{E}[|h_{\ell}|^2] = 1`` on every branch, so `snr_db` is the average per-branch ``E_b/N_0``, not the SNR after combining. The symbol energy is not split across branches.
+
+# Returns
+- `z`: length-`N` vector from [`mrc`](@ref), so a noiseless call returns the symbols.
+- `h`: the `L × N` coefficients that were applied and then used as CSI. There is no estimation error.
+
+`L ≥ 1` and `bits_per_symbol ≥ 1`. ``\mathrm{snr\_db} = +\infty`` adds no noise. For coherent BPSK and i.i.d. Rayleigh branches (`K = 0`), the tests compare against
+
+```math
+P_b = \left(\frac{1-\mu}{2}\right)^L
+\sum_{k=0}^{L-1}\binom{L-1+k}{k}\left(\frac{1+\mu}{2}\right)^k,
+\qquad
+\mu = \sqrt{\frac{\bar\gamma_b}{1+\bar\gamma_b}},
+```
+
+with ``\bar\gamma_b`` the per-branch average (Proakis and Salehi, 5th ed., §13.4). `L = 1` is the single-branch Rayleigh or Rice receiver, up to the normalisation in [`mrc`](@ref), which for one branch is `y ./ h`.
+
+Branches are independent. There is no spatial correlation, no Jakes spectrum, and no transmit diversity.
+"""
+function mrc_channel(
+    syms::AbstractVector{<:Number},
+    snr_db::Real,
+    bits_per_symbol::Integer,
+    L::Integer;
+    K::Real=0.0,
+)
+    bits_per_symbol >= 1 || throw(ArgumentError("bits_per_symbol must be ≥ 1"))
+    L = Int(L)
+    L >= 1 || throw(ArgumentError("L must be ≥ 1, got $L"))
+    x = ComplexF64.(syms)
+    N = length(x)
+    h = Matrix{ComplexF64}(undef, L, N)
+    y = Matrix{ComplexF64}(undef, L, N)
+    for ℓ in 1:L
+        hl = rice_fading(N, K)
+        @inbounds for n in 1:N
+            h[ℓ, n] = hl[n]
+        end
+        y[ℓ, :] = awgn(x .* hl, snr_db, bits_per_symbol)
+    end
+    return mrc(y, h), h
 end
 
 end # module Channel

@@ -1,6 +1,6 @@
 # CommToolkit.jl
 
-基带通信链路仿真库（v0.6.1），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
+基带通信链路仿真库（v0.7.0），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
 
 本包**不是** 3GPP NR / LTE 物理层，**不是** O-RAN 前传实现，也**不是**生产级协议栈。OFDM 是教科书循环前缀模型，没有资源栅格、DMRS 或空口时隙结构。LDPC 是短码教学 / 参考实现，不是 NR BG1/BG2。MCS 表、CRC 和 Chase 合并是链路级教学闭环，不是 NR CQI/MCS 表，也不是 HARQ 实体或调度器。卷积删余是 ``K = 3`` 母码上的周期图案，不是 NR 速率匹配。块衰落在一块内系数恒定，不是 Jakes 模型。
 
@@ -8,8 +8,8 @@
 
 公开接口从子模块扁平再导出，原有调用方式保持不变（例如 `modulate(bits, BPSK())`、`awgn(syms, snr_db, bits_per_symbol)`）。没有重命名，因此没有弃用别名。
 
-- **调制**（`Modulation`）：BPSK、Gray QPSK、方形 Gray M-QAM（`M ≥ 4` 且为平方、2 的幂）。单位符号能量。硬判决解调；AWGN 下逐比特 LLR（精确边际与 max-log），噪声方差与 `awgn` 的 ``\sigma^2 = N_0/2`` 相同。星座点与每符号比特数。
-- **信道**（`Channel`）：AWGN，`snr_db` 是 ``E_b/N_0``（dB）；平坦瑞利衰落，可选理想信道补偿。另有块衰落：同一块内一个 ``h \sim \mathcal{CN}(0,1)``，块之间独立。单载波 FIR：`apply_fir` 做全长线性卷积，`fir_channel` 在卷积之后按同一 ``E_b/N_0`` 约定加 AWGN，并返回 `mmse_equalize` 用的噪声方差。抽头由调用者给定，不随时间变化。
+- **调制**（`Modulation`）：BPSK、Gray QPSK、Gray M-PSK（`PSK(M)`，``M \ge 4`` 且为 2 的幂，符号 0 在正实轴）、方形 Gray M-QAM（`M ≥ 4` 且为平方、2 的幂）。单位符号能量。硬判决解调；相干 AWGN 下逐比特 LLR（精确边际与 max-log），噪声方差与 `awgn` 的 ``\sigma^2 = N_0/2`` 相同。另有 DBPSK / DQPSK：`modulate` 在块首放参考符号 ``1``，硬判决是两符号差分检测，软 LLR 是未知公共相位下的 ``I_0`` 边际。不是 ``\pi/4``-DQPSK。
+- **信道**（`Channel`）：AWGN，`snr_db` 是 ``E_b/N_0``（dB）；平坦瑞利衰落，可选理想信道补偿。平坦 Rice：`rice_fading` / `rice_channel`，`K` 是线性 ``P_{\mathrm{LOS}}/P_{\mathrm{scatter}}``，不是 dB，``\mathbb{E}[|h|^2] = 1``，直射相位为 0，噪声仍走 `awgn`。理想 CSI 的 L 支路 MRC：`mrc` 合并已知的 ``L \times N`` 观测，`mrc_channel` 生成独立 Rice/瑞利支路再合并。另有块衰落：同一块内一个 ``h \sim \mathcal{CN}(0,1)``，块之间独立。单载波 FIR：`apply_fir` 做全长线性卷积，`fir_channel` 在卷积之后按同一 ``E_b/N_0`` 约定加 AWGN，并返回 `mmse_equalize` 用的噪声方差。抽头由调用者给定，不随时间变化。
 - **编码**（`Coding`）：码率 1/2、约束长度 ``K = 3``、八进制生成多项式 (7, 5) 的卷积码，尾比特终止。硬判决 Viterbi、以 LLR 为分支度量的软输入硬输出 Viterbi、终止码上的 log-BCJR 外信息，以及网格距离谱。母码可用标准周期图案删余到名义码率 2/3 和 3/4；译码前把删余位填回 LLR 0。另有短 LDPC 的教学实现：Gallager 正则构造与 Fan 阵列码（稀疏校验矩阵）、构造时一次 GF(2) 高斯消元得到的系统编码、泛洪 log-domain sum-product 与 min-sum（默认归一化 min-sum，``\alpha = 0.75``），综合征为 0 时早停。信道 LLR 与 `demodulate_soft` 相同：正 LLR 表示比特 0。不是 NR 基图。
 - **交织**（`Interleaving`）：矩形块交织，按行写入、按列读出，对比特、符号和 LLR 是同一种置换。
 - **链路**（`Link`）：CRC-16（CCITT 多项式 ``x^{16}+x^{12}+x^5+1``，系统码，初值 0）、五档教学 MCS、Chase 合并（比特 LLR 相加，有限次重传）和按 ``E_s/N_0`` 切换的 MCS。仿真信噪比是 ``E_s/N_0``，``E_s = 1``，``\sigma^2 = N_0/2``，与 `awgn` / `demodulate_soft` 相同。返回 BLER、BER、吞吐（送达净荷比特 / 信道符号，含重传）和频谱效率。没有速率匹配、增量冗余、多进程 HARQ、调度或功率控制。
@@ -46,8 +46,14 @@ ber(bits, demodulate(rx, BPSK()))
 - AWGN 下 BPSK 与 Gray QPSK：``Q(\sqrt{2 E_b/N_0})``。Proakis 与 Salehi，《Digital Communications》第 5 版，§5.2。
 - 方形 Gray M-QAM 的精确平均误比特率：Cho 与 Yoon，IEEE Trans. Commun. 50(7):1074–1080，2002，式 (16)。图中 16-QAM 用的是这个精确式，不是高信噪比近似。
 - 理想 CSI 下平坦瑞利相干 BPSK：``\tfrac12\bigl(1 - \sqrt{\bar\gamma/(1+\bar\gamma)}\bigr)``，``\mathbb{E}[|h|^2] = 1``。Goldsmith，《Wireless Communications》，2005，§6.3；Proakis 与 Salehi 第 5 版 §13.3。
+- Gray M-PSK：相位误差扇区上的 Gray 汉明距离平均（Proakis 与 Salehi §4.2、§5.2）。符号错误率同时用 Craig 积分交叉核对。最近邻近似 ``(1/\log_2 M)\operatorname{erfc}(\sqrt{\log_2 M\cdot E_b/N_0}\sin(\pi/M))`` 在 ``M = 4`` 时等于 QPSK，``M > 4`` 不是精确式。蒙特卡洛对照的是扇区积分。
+- DBPSK：``\tfrac12\exp(-E_b/N_0)``。Gray DQPSK：一阶 Marcum Q 比特错误率（Proakis 与 Salehi §4.5）。差分检测的参考符号是前导，公式不把它折进信息比特能量。
+- 理想 CSI 相干 BPSK、平坦 Rice：Craig 形式的 ``Q`` 对 Rician 矩生成函数积分。`K = 0` 退回瑞利闭式，`K \to \infty` 退回 AWGN。`K` 是线性比。
+- L 支路 i.i.d. 瑞利、理想 CSI、相干 BPSK 的 MRC：Proakis 与 Salehi §13.4 的求和式。``\bar\gamma_b`` 是每条支路的平均 ``E_b/N_0``。`L = 1` 退回单支路瑞利。
 
 ![BPSK、QPSK、16-QAM 在 AWGN 下以及 BPSK 在平坦瑞利下的蒙特卡洛误码率与闭式曲线](docs/src/assets/ber_validation.png)
+
+上图仍是 v0.6 之前的四条曲线。Gray M-PSK、DBPSK、DQPSK、Rice 上的相干 BPSK 和瑞利 MRC 用同一套 Clopper–Pearson 区间（``\alpha = 10^{-4}``）写在 `test/psk_rice_mrc.jl`，公式在 `test/reference.jl`。可复现的打印在 `demos/ber_psk_rice_mrc.jl`，不依赖 Plots。
 
 卷积码在测试里与硬判决联合界比较（Proakis 与 Salehi §8.2；Lin 与 Costello，《Error Control Coding》第 2 版 §12.3）。同一 ``E_b/N_0`` 下，软输入 Viterbi 与 BCJR 硬判决的 Clopper–Pearson 区间低于硬判决 Viterbi，也低于未编码 BPSK，并落在软判决联合界 ``\sum c_d Q(\sqrt{2 d R E_b/N_0})`` 的同一数量级（Proakis 与 Salehi §8.2；Bahl、Cocke、Jelinek 与 Raviv，IEEE Trans. Inf. Theory 20(2):284–287，1974）。BPSK / Gray QPSK 的 LLR 与闭式条件高斯分布对照（Proakis 与 Salehi §4.2、§5.2）。OFDM / MIMO 测试覆盖无噪声完美恢复，以及高低信噪比下互不重叠的 Clopper–Pearson 区间。单载波 FIR 与匹配滤波在 `test/pulse_fir.jl`：无噪声时 `zf_equalize` 反演 `apply_fir`；冲激脉冲走 `pulse_shape`、样本率 FIR、`matched_filter`、`downsample_symbols` 之后，ZF 与 `noise_var = 0` 的 MMSE 恢复符号。无多径、无噪声时，根升余弦级联在符号点上贴近原符号。可复现的打印在 `demos/pulse_fir_link.jl`，不依赖 Plots。
 
@@ -67,7 +73,7 @@ Pkg.test("CommToolkit")
 ```
 src/CommToolkit.jl    模块入口与再导出
 src/modulation.jl     Modulation
-src/channel.jl        Channel（含单载波 FIR）
+src/channel.jl        Channel（含 Rice、理想 CSI MRC、单载波 FIR）
 src/pulse.jl          Pulse：匹配滤波与按 sps 抽样
 src/coding.jl         Coding（包含 src/ldpc.jl；卷积删余在本文件）
 src/interleaving.jl   Interleaving：矩形块交织
@@ -95,6 +101,9 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 - 卷积码母码仍是 (7, 5)、``K = 3``。删余图案只有两张：1/2→2/3 的 ``[1, 1, 1, 0]`` 和 1/2→3/4 的 ``[1, 1, 1, 0, 0, 1]``，按 ``(g_1, g_2)`` 码流顺序周期作用，尾比特一并删余。这是 Yasuda 等人与 IEEE 802.11 用在 1/2 母码上的图案，不是针对 (7, 5) 重新搜索的自由距表。没有其它码率。``depuncture`` 在软 LLR 上把删余位填 0（擦除）。硬判决 Viterbi 只接受 0/1，不把填进去的数当成擦除；删余后的硬判决要先换成 ``1-2\hat{c}`` 再填 0，送给软 Viterbi 或 BCJR。软输入 Viterbi 输出硬比特，并且和硬判决译码一样不把最终状态钉在 0。BCJR 按终止码把尾比特固定为 0、最终状态固定在 0，返回信息比特外信息（后验 LLR 减去先验）；码是非系统的，没有信道系统位可减。没有 SOVA 或 Turbo。联合界仍按未删余、未终止母码的第一事件界计算，不覆盖删余码。
 - 交织只有矩形块交织（按行写入、按列读出）。没有卷积交织，也没有和删余图案或 MCS 绑在一起的交织器。逐符号独立衰落上，块交织不改变每个符号的边际信噪比。
 - 平坦瑞利仍是逐符号独立的 ``h``。块衰落在一块内 ``h`` 恒定、块之间独立，``\mathbb{E}[|h|^2] = 1``。没有 Jakes 谱、多普勒或时间相关成形。``rx ./ h`` 之后各符号噪声方差是 ``\sigma^2/|h|^2``，不能再拿一个标量方差做软解调。相干 BPSK 的 LLR 是 ``2\Re(h^* y)/\sigma^2``。
+- M-PSK 只接受不小于 4 的 2 的幂。`PSK(4)` 的星座在坐标轴上，Gray 序号是二进制反射码，不是 `QPSK()` 的 ``\pi/4`` 正交映射。没有 ``\pi/4``-DQPSK，差分只做到 DBPSK 和 DQPSK。`modulate` 多输出一个参考符号 ``1``，``N`` 个信息比特占 ``N/k + 1`` 个信道使用；闭式误码率是每一对符号的错误率，不把这个前导折成信息比特能量损失。软 LLR 只用相邻两个符号、公共相位未知时的 ``I_0`` 似然，不做更长的多符号窗。逐符号独立衰落会毁掉差分相位；整块乘同一个相位则不会。
+- Rice 的 `K` 是线性 ``P_{\mathrm{LOS}}/P_{\mathrm{scatter}}``，不是 dB。直射分量是正实数 ``\sqrt{K/(K+1)}``，``\mathbb{E}[|h|^2] = 1``。`K = 0` 与 `rayleigh_channel` 的系数同分布、同样的 `randn` 顺序；`K = Inf` 使 ``h = 1``，且不消耗随机数。没有时间相关。`rice_channel` 在衰落之后调用 `awgn`，`snr_db` 是平均 ``E_b/N_0``。
+- MRC 是接收分集：同一个符号进入 L 条独立支路，每条支路的平均 ``E_b/N_0`` 就是调用时的 `snr_db`，符号能量不在支路之间拆分。`mrc` 假定 ``h`` 已知且就是生成 ``y`` 的那组系数，返回按 ``\sum|h|^2`` 归一化的样本。硬判决可以直接解这条样本；软判决不能再喂一个标量 ``\sigma^2``。全零列得到 `NaN`。不是 Alamouti，不在 `MIMO` 的检测器里，没有信道估计误差，也没有天线相关。Rice 与 MRC 可以叠在 `mrc_channel(...; K)` 上，但测试里的闭式只覆盖瑞利 MRC 和单支路 Rice BPSK。
 - LDPC 只覆盖短的教学构造。Gallager 的列置换由本实现的 SplitMix64 规则确定，不是 Gallager 1962 系综里的某一个唯一矩阵，也不保证围长；没有 PEG，没有非正则优化，也没有按密度进化重估 ``\alpha``、``\beta``（固定为 0.75 与 0.15）。编码是构造时的一次稠密高斯消元，边长不超过 4096，不是 Richardson–Urbanke 的线性时间编码器。译码是泛洪调度，不是分层调度。有环时 sum-product 不等于 MAP。``[7,4]`` Hamming 码含 4 环，全零字上第 7 位（列重 3）的单比特翻转会收敛到另一个码字。信道硬判决已经是码字且早停打开时，`posterior` 就是信道 LLR，迭代次数为 0。冗余校验行留在 Tanner 图里。没有 NR BG1/BG2、LDPC 速率匹配、LDPC 打孔、缩短，也没有把解调器外信息再送回译码器。CRC 和 Chase 合并在 `Link` 里，不在 LDPC 译码器内部。
 - 链路闭环是单链路 AWGN。MCS 表只有五档，频谱效率把 16 位 CRC 和卷积尾比特算作开销，所以低于母码率乘 ``\log_2 M``。门限是这条表、这个块长上的教学开关，不是 NR CQI，也不会随信道重新估计。3 dB 和 11 dB 附近两条吞吐曲线靠得近，换随机数流可能把交点挪约 1 dB。Chase 合并重复同一编码块；闭环里没有增量冗余，卷积删余也没有接到 Chase 上。重传次数有限，失败的块丢弃。外环只移动一个 SNR 偏移，不控制功率，也没有 HARQ 进程号或时序。二阶矩 ``E_s/N_0`` 估计在短块上有偏。CRC-16 检不出 ``g(x)`` 的倍式。没有多用户，也没有调度器。
 - 软解调假定星座等先验、符号独立。LLR 是信道比特边际，没有把译码器外信息反馈进解调器。`approx = :maxlog` 只保留每个比特子集里的最近星座点。衰落系数要由调用者先补偿；本函数不读取 CSI。

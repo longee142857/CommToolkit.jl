@@ -1,5 +1,16 @@
 # 变更记录
 
+## 0.7.0
+
+Gray M-PSK、DBPSK/DQPSK、平坦 Rice，以及理想 CSI 的 L 支路 MRC。不是 ``\pi/4``-DQPSK，没有 Jakes，没有接到 MCS / HARQ 上。
+
+- 调制：`PSK(M)`，``M \ge 4`` 且为 2 的幂。二进制反射 Gray，符号 0 在正实轴，单位能量。硬判决是最小距离；软 LLR 走原来的相干 AWGN 边际（精确与 max-log）。`PSK(4)` 不是 `QPSK()` 的比特映射。
+- 差分：`DBPSK`、`DQPSK`。`modulate` 在块首放参考符号 ``1``，输出长度比数据符号多 1。硬判决看 ``y_i y_{i-1}^*``。软 LLR 是两符号、公共相位未知时的 ``I_0`` 似然。DQPSK 的相位增量是 ``0, \pm\pi/2, \pi``，不是 ``\pi/4``。
+- 信道：`rice_fading` / `rice_channel`。`K` 是线性 ``P_{\mathrm{LOS}}/P_{\mathrm{scatter}}``，不是 dB；直射相位为 0；``\mathbb{E}[|h|^2] = 1``。噪声仍是 `awgn` 的 ``E_b/N_0``。`K = 0` 与瑞利同分布，`K = Inf` 是 ``h = 1``。
+- 分集：`mrc` 对 ``L \times N`` 的已知 ``h`` 做最大比合并并按 ``\sum|h|^2`` 归一化。`mrc_channel` 生成 L 条独立 Rice/瑞利支路（默认 `K = 0`）再合并。每条支路的平均 ``E_b/N_0`` 是调用参数，不是合并之后的信噪比。
+- 对照：Gray M-PSK 扇区积分（Craig 符号错误率交叉核对）、DBPSK 指数式、DQPSK 的 Marcum Q、Rice 上相干 BPSK 的 Craig 积分、瑞利 MRC 的 Proakis 求和式。实现在 `test/reference.jl`，不从包里导出。
+- 版本：已有函数的位置参数和返回值不变，所以不是破坏性变更。这一刀是一组新的调制和信道，不是 0.6.1 上的小补丁，按 0.x 记为 0.7.0，而不是 0.6.2，也不升到 1.0。
+
 ## 0.6.1
 
 单载波接收侧匹配滤波、按每符号样本数抽样，以及确定性 FIR 多径。不是定时恢复，不是 Jakes，也没有接到 OFDM 的抽头延迟线上。
