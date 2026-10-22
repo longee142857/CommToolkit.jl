@@ -46,7 +46,7 @@ end
 
 Zero-forcing equalisation of one convolution. `received` has length ``n + L - 1`` and `h` has length ``L``; the result has length ``n``.
 
-Noiseless convolution is inverted exactly (up to linear-algebra roundoff) when ``H`` has full column rank. See [`zf_equalizer`](@ref).
+Noiseless convolution is inverted exactly (up to linear-algebra roundoff) when ``H`` has full column rank. [`CommToolkit.Channel.apply_fir`](@ref)`(s, h)` is that convolution and has length ``n + L - 1``. See [`zf_equalizer`](@ref).
 """
 function zf_equalize(syms::AbstractVector{<:Number}, h::AbstractVector{<:Number})
     n = length(syms) - length(h) + 1

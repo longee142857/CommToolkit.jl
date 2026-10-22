@@ -1,17 +1,18 @@
 """
     CommToolkit
 
-Baseband communication-link simulations: Gray PSK/QAM with hard decisions and AWGN bit LLRs, AWGN, symbol-wise flat Rayleigh, and block-constant Rayleigh channels, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, puncturing of that mother code to nominal rates 2/3 and 3/4, a rectangular block interleaver, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, a teaching CRC / MCS / Chase-HARQ loop, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, and raised-cosine pulses.
+Baseband communication-link simulations: Gray PSK/QAM with hard decisions and AWGN bit LLRs, AWGN, symbol-wise flat Rayleigh, and block-constant Rayleigh channels, a deterministic single-carrier FIR, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, puncturing of that mother code to nominal rates 2/3 and 3/4, a rectangular block interleaver, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, a teaching CRC / MCS / Chase-HARQ loop, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, raised-cosine pulses, a matched filter, and symbol-rate downsampling.
 
-The public names are re-exported from the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, and `Metrics`. Calling `using CommToolkit` does not load Plots; constellation, eye, and pulse figures are provided by the package extension `CommToolkitPlotsExt` after `using Plots`.
+The public names are re-exported from the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, and `Metrics`. Calling `using CommToolkit` does not load Plots; constellation, eye, and pulse figures are provided by the package extension `CommToolkitPlotsExt` after `using Plots`.
 
-This package is a simulation library for checking algorithms against textbook formulas. It does not implement 3GPP NR, LTE, or an O-RAN fronthaul, and it is not a production physical-layer stack. The LDPC codes are short teaching constructions, not NR base graphs. The MCS table and HARQ loop are a link-level teaching reference, not an NR scheduler. Convolutional puncturing is the classical periodic mask on the ``K = 3`` mother code, not NR rate matching. Block fading holds one coefficient fixed inside a block; it is not a Jakes model.
+This package is a simulation library for checking algorithms against textbook formulas. It does not implement 3GPP NR, LTE, or an O-RAN fronthaul, and it is not a production physical-layer stack. The LDPC codes are short teaching constructions, not NR base graphs. The MCS table and HARQ loop are a link-level teaching reference, not an NR scheduler. Convolutional puncturing is the classical periodic mask on the ``K = 3`` mother code, not NR rate matching. Block fading holds one coefficient fixed inside a block; it is not a Jakes model. The FIR is a tap vector supplied by the caller, not a fading process. The matched filter does not estimate timing or carrier phase.
 """
 module CommToolkit
 
 include("metrics.jl")
 include("modulation.jl")
 include("channel.jl")
+include("pulse.jl")
 include("coding.jl")
 include("interleaving.jl")
 include("link.jl")
@@ -23,7 +24,9 @@ include("visualization.jl")
 using .Metrics: ber, ser, fer, snr_db_to_linear
 using .Modulation: ModulationScheme, BPSK, QPSK, QAM, modulate, demodulate,
     demodulate_soft, constellation, bits_per_symbol
-using .Channel: awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel
+using .Channel: awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel,
+    apply_fir, fir_channel
+using .Pulse: matched_filter, downsample_symbols
 using .Coding: conv_encode, viterbi_decode, bcjr_decode, distance_spectrum,
     puncture_mask, puncture, depuncture,
     LDPCCode, LDPCResult,
@@ -53,6 +56,8 @@ export
     ModulationScheme, BPSK, QPSK, QAM,
     modulate, demodulate, demodulate_soft, constellation, bits_per_symbol,
     awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel,
+    apply_fir, fir_channel,
+    matched_filter, downsample_symbols,
     conv_encode, viterbi_decode, bcjr_decode, distance_spectrum,
     puncture_mask, puncture, depuncture,
     block_interleave, block_deinterleave,

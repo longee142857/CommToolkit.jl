@@ -4,7 +4,7 @@ API reference for the exported interface. This page is not a tutorial.
 
 The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE, it does not implement an O-RAN fronthaul, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity.
 
-Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it.
+Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it.
 
 ```@docs
 CommToolkit
@@ -32,6 +32,8 @@ awgn
 rayleigh_channel
 block_rayleigh
 block_rayleigh_channel
+apply_fir
+fir_channel
 ber
 ser
 fer
@@ -147,10 +149,15 @@ alamouti_decode_2x2
 
 ## Pulses and figures
 
+`pulse_shape` truncates the transmit convolution. `matched_filter` keeps the full matched-filter tail and does not choose the sampling phase; pass that phase as `offset` to `downsample_symbols`. These functions do not estimate timing.
+
 ```@docs
 raised_cosine
 rrc_filter
 pulse_shape
+CommToolkit.Pulse
+matched_filter
+downsample_symbols
 plot_constellation
 plot_eye_diagram
 plot_pulse_response
