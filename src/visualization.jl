@@ -102,7 +102,7 @@ end
 
 Upsample `symbols` by inserting `sps - 1` zeros after every symbol, convolve with `taps`, and **truncate the result to `length(symbols) * sps` samples** (the filter tail of length `length(taps) - 1` is discarded).
 
-The truncation keeps the start of the convolution, including the filter's group delay. It is the waveform used by the eye-diagram helper; it is not a delay-compensated matched-filter receiver.
+The truncation keeps the start of the convolution, including the filter's group delay, and drops the tail. It is the waveform used by the eye-diagram helper. It does not apply a matched filter or remove the group delay; that is [`CommToolkit.Pulse.matched_filter`](@ref) followed by [`CommToolkit.Pulse.downsample_symbols`](@ref). Because the tail is already gone, a later matched filter is not the full cascade on the last symbols of the burst.
 """
 function pulse_shape(symbols::AbstractVector{<:Number}, taps::AbstractVector{<:Real}, sps::Integer)
     sps >= 1 || throw(ArgumentError("sps must be ≥ 1"))

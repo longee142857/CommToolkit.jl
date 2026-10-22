@@ -1,6 +1,6 @@
 # CommToolkit.jl
 
-基带通信链路仿真库（v0.6.0），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
+基带通信链路仿真库（v0.6.1），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
 
 本包**不是** 3GPP NR / LTE 物理层，**不是** O-RAN 前传实现，也**不是**生产级协议栈。OFDM 是教科书循环前缀模型，没有资源栅格、DMRS 或空口时隙结构。LDPC 是短码教学 / 参考实现，不是 NR BG1/BG2。MCS 表、CRC 和 Chase 合并是链路级教学闭环，不是 NR CQI/MCS 表，也不是 HARQ 实体或调度器。卷积删余是 ``K = 3`` 母码上的周期图案，不是 NR 速率匹配。块衰落在一块内系数恒定，不是 Jakes 模型。
 
@@ -9,14 +9,14 @@
 公开接口从子模块扁平再导出，原有调用方式保持不变（例如 `modulate(bits, BPSK())`、`awgn(syms, snr_db, bits_per_symbol)`）。没有重命名，因此没有弃用别名。
 
 - **调制**（`Modulation`）：BPSK、Gray QPSK、方形 Gray M-QAM（`M ≥ 4` 且为平方、2 的幂）。单位符号能量。硬判决解调；AWGN 下逐比特 LLR（精确边际与 max-log），噪声方差与 `awgn` 的 ``\sigma^2 = N_0/2`` 相同。星座点与每符号比特数。
-- **信道**（`Channel`）：AWGN，`snr_db` 是 ``E_b/N_0``（dB）；平坦瑞利衰落，可选理想信道补偿。另有块衰落：同一块内一个 ``h \sim \mathcal{CN}(0,1)``，块之间独立。
+- **信道**（`Channel`）：AWGN，`snr_db` 是 ``E_b/N_0``（dB）；平坦瑞利衰落，可选理想信道补偿。另有块衰落：同一块内一个 ``h \sim \mathcal{CN}(0,1)``，块之间独立。单载波 FIR：`apply_fir` 做全长线性卷积，`fir_channel` 在卷积之后按同一 ``E_b/N_0`` 约定加 AWGN，并返回 `mmse_equalize` 用的噪声方差。抽头由调用者给定，不随时间变化。
 - **编码**（`Coding`）：码率 1/2、约束长度 ``K = 3``、八进制生成多项式 (7, 5) 的卷积码，尾比特终止。硬判决 Viterbi、以 LLR 为分支度量的软输入硬输出 Viterbi、终止码上的 log-BCJR 外信息，以及网格距离谱。母码可用标准周期图案删余到名义码率 2/3 和 3/4；译码前把删余位填回 LLR 0。另有短 LDPC 的教学实现：Gallager 正则构造与 Fan 阵列码（稀疏校验矩阵）、构造时一次 GF(2) 高斯消元得到的系统编码、泛洪 log-domain sum-product 与 min-sum（默认归一化 min-sum，``\alpha = 0.75``），综合征为 0 时早停。信道 LLR 与 `demodulate_soft` 相同：正 LLR 表示比特 0。不是 NR 基图。
 - **交织**（`Interleaving`）：矩形块交织，按行写入、按列读出，对比特、符号和 LLR 是同一种置换。
 - **链路**（`Link`）：CRC-16（CCITT 多项式 ``x^{16}+x^{12}+x^5+1``，系统码，初值 0）、五档教学 MCS、Chase 合并（比特 LLR 相加，有限次重传）和按 ``E_s/N_0`` 切换的 MCS。仿真信噪比是 ``E_s/N_0``，``E_s = 1``，``\sigma^2 = N_0/2``，与 `awgn` / `demodulate_soft` 相同。返回 BLER、BER、吞吐（送达净荷比特 / 信道符号，含重传）和频谱效率。没有速率匹配、增量冗余、多进程 HARQ、调度或功率控制。
-- **均衡**（`Equalization`）：频率选择性信道上的线性 ZF / MMSE。
+- **均衡**（`Equalization`）：频率选择性信道上的线性 ZF / MMSE。无噪声时反演 `apply_fir` 的全长卷积。
 - **OFDM**（`OFDM`）：循环前缀 OFDM 收发、抽头延迟线、已知 CSI / LS / 逐导频收缩后线性插值、van de Beek 符号定时与小数倍频偏。
 - **MIMO**（`MIMO`）：i.i.d. 瑞利信道，ML、ZF、MMSE、按行范数排序的 SIC，ZF 与 SVD 预编码，Alamouti ``2\times1`` 与 ``2\times2``。
-- **脉冲**（`Visualization`）：升余弦与根升余弦。星座图、眼图、脉冲频谱由包扩展 `CommToolkitPlotsExt` 提供，只有 `using Plots` 之后才加载。
+- **脉冲**（`Visualization`、`Pulse`）：升余弦与根升余弦，`pulse_shape`。接收侧 `matched_filter` 用发射脉冲的共轭反转做全长卷积，`downsample_symbols` 按每符号样本数抽一个相位。星座图、眼图、脉冲频谱由包扩展 `CommToolkitPlotsExt` 提供，只有 `using Plots` 之后才加载。
 - **指标**（`Metrics`）：误码率、符号错误率、按块计的帧错误率、dB 与线性信噪比换算。
 
 `CommToolkit.modulation` 根据 `OFDMParams` 选择 QPSK 或 QAM，不在 `export` 列表里。
@@ -49,7 +49,7 @@ ber(bits, demodulate(rx, BPSK()))
 
 ![BPSK、QPSK、16-QAM 在 AWGN 下以及 BPSK 在平坦瑞利下的蒙特卡洛误码率与闭式曲线](docs/src/assets/ber_validation.png)
 
-卷积码在测试里与硬判决联合界比较（Proakis 与 Salehi §8.2；Lin 与 Costello，《Error Control Coding》第 2 版 §12.3）。同一 ``E_b/N_0`` 下，软输入 Viterbi 与 BCJR 硬判决的 Clopper–Pearson 区间低于硬判决 Viterbi，也低于未编码 BPSK，并落在软判决联合界 ``\sum c_d Q(\sqrt{2 d R E_b/N_0})`` 的同一数量级（Proakis 与 Salehi §8.2；Bahl、Cocke、Jelinek 与 Raviv，IEEE Trans. Inf. Theory 20(2):284–287，1974）。BPSK / Gray QPSK 的 LLR 与闭式条件高斯分布对照（Proakis 与 Salehi §4.2、§5.2）。OFDM / MIMO 测试覆盖无噪声完美恢复，以及高低信噪比下互不重叠的 Clopper–Pearson 区间。
+卷积码在测试里与硬判决联合界比较（Proakis 与 Salehi §8.2；Lin 与 Costello，《Error Control Coding》第 2 版 §12.3）。同一 ``E_b/N_0`` 下，软输入 Viterbi 与 BCJR 硬判决的 Clopper–Pearson 区间低于硬判决 Viterbi，也低于未编码 BPSK，并落在软判决联合界 ``\sum c_d Q(\sqrt{2 d R E_b/N_0})`` 的同一数量级（Proakis 与 Salehi §8.2；Bahl、Cocke、Jelinek 与 Raviv，IEEE Trans. Inf. Theory 20(2):284–287，1974）。BPSK / Gray QPSK 的 LLR 与闭式条件高斯分布对照（Proakis 与 Salehi §4.2、§5.2）。OFDM / MIMO 测试覆盖无噪声完美恢复，以及高低信噪比下互不重叠的 Clopper–Pearson 区间。单载波 FIR 与匹配滤波在 `test/pulse_fir.jl`：无噪声时 `zf_equalize` 反演 `apply_fir`；冲激脉冲走 `pulse_shape`、样本率 FIR、`matched_filter`、`downsample_symbols` 之后，ZF 与 `noise_var = 0` 的 MMSE 恢复符号。无多径、无噪声时，根升余弦级联在符号点上贴近原符号。可复现的打印在 `demos/pulse_fir_link.jl`，不依赖 Plots。
 
 LDPC 使用同一套 `awgn` / `demodulate_soft` 标定：BPSK 符号能量 ``E_s = 1``，信息比特能量 ``E_b = n/k``，``\sigma^2 = N_0/2``。`test/ldpc.jl` 在 Fan 阵列码 `array_ldpc(3, 6, 11)`（``n = 66``，``k = 35``，无 4 环）上，于 2.5 dB 与 3.5 dB、各 1000 帧、种子 `0x0c0de1162`，对归一化 min-sum 与 sum-product 检查信息比特 BER 和 BLER 的 Clopper–Pearson 上界（``\alpha = 10^{-4}``）低于未编码 BPSK。小码与 ``[7,4]`` Hamming 码做穷举对照（Lin 与 Costello §3.2）；树上的 sum-product 与逐比特 MAP 一致。Hamming 校验图含 4 环，不是最大似然译码。
 
@@ -67,7 +67,8 @@ Pkg.test("CommToolkit")
 ```
 src/CommToolkit.jl    模块入口与再导出
 src/modulation.jl     Modulation
-src/channel.jl        Channel
+src/channel.jl        Channel（含单载波 FIR）
+src/pulse.jl          Pulse：匹配滤波与按 sps 抽样
 src/coding.jl         Coding（包含 src/ldpc.jl；卷积删余在本文件）
 src/interleaving.jl   Interleaving：矩形块交织
 src/ldpc.jl           短 LDPC：Gallager、阵列码、系统编码、泛洪译码
@@ -98,6 +99,7 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 - 链路闭环是单链路 AWGN。MCS 表只有五档，频谱效率把 16 位 CRC 和卷积尾比特算作开销，所以低于母码率乘 ``\log_2 M``。门限是这条表、这个块长上的教学开关，不是 NR CQI，也不会随信道重新估计。3 dB 和 11 dB 附近两条吞吐曲线靠得近，换随机数流可能把交点挪约 1 dB。Chase 合并重复同一编码块；闭环里没有增量冗余，卷积删余也没有接到 Chase 上。重传次数有限，失败的块丢弃。外环只移动一个 SNR 偏移，不控制功率，也没有 HARQ 进程号或时序。二阶矩 ``E_s/N_0`` 估计在短块上有偏。CRC-16 检不出 ``g(x)`` 的倍式。没有多用户，也没有调度器。
 - 软解调假定星座等先验、符号独立。LLR 是信道比特边际，没有把译码器外信息反馈进解调器。`approx = :maxlog` 只保留每个比特子集里的最近星座点。衰落系数要由调用者先补偿；本函数不读取 CSI。
 - OFDM 的 “MMSE” 是逐导频幅度收缩后再做线性插值，不是 Edfors 的 LMMSE。多径上线性插值有与信噪比无关的误差平底。`ofdm_sync` 校正频偏，但不按定时估计平移缓存。
-- `pulse_shape` 把卷积结果截成 `length(symbols) * sps`，滤波器尾部被丢掉。
+- `pulse_shape` 仍把卷积截成 `length(symbols) * sps`，滤波器尾部被丢掉。`matched_filter` 是 `conj.(reverse(taps))` 的全长线性卷积：不截断、不搜索定时、不做分数延迟内插。`downsample_symbols` 的 `offset` 是调用者给出的前导样本数（抽样相位），不按 `sps` 取模，也不是 Gardner 环。根升余弦在符号点上只是截断后的近似奈奎斯特；突发末尾大约半个滤波器跨度的符号缺少被丢掉的尾部。没有载波恢复，没有 Costas 环。抽样相位要对上自相关峰值时，`offset = length(taps) - 1`（符号 1 放在上采样后的下标 1，且 `length(symbols) * sps >= length(taps)`）。
+- FIR 抽头是确定性的，不是随机抽头过程，也不是 Jakes 谱，并且没有接到 OFDM 的 `TDLChannel` 上。`fir_channel` 的噪声按调用者给出的 ``E_b`` 标定（位置参数假定 ``E_s = 1``），不按滤波后的样本功率重标。返回的 `noise_var` 是加在**这条卷积结果**上的噪声方差：实序列为 ``N_0/2``，复序列为 ``N_0``。它只在均衡器的输入就是这个 `rx` 时交给 `mmse_equalize`；匹配滤波之后噪声被着色，这个标量不再是抽样点上的方差。`+Inf` 不加噪声，也不消耗全局随机数。ZF / MMSE 要的是抽样之后的符号率冲激响应。中间有脉冲成形时，它不等于样本率上的 FIR 抽头，除非该脉冲在抽样相位上是冲激。
 - ML 检测是穷举。SVD 预编码不做注水。ZF 预编码矩阵未做功率归一化。
 - 导频和抽头相位用固定线性同余发生器，不走全局随机数流。

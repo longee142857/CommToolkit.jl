@@ -6,6 +6,7 @@ makedocs(;
         CommToolkit,
         CommToolkit.Modulation,
         CommToolkit.Channel,
+        CommToolkit.Pulse,
         CommToolkit.Coding,
         CommToolkit.Interleaving,
         CommToolkit.Link,

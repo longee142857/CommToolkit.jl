@@ -3,7 +3,8 @@ module Channel
 import ..Modulation
 using ..Metrics: snr_db_to_linear
 
-export awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel
+export awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel,
+    apply_fir, fir_channel
 
 @doc raw"""
     awgn(symbols, snr_db::Real; energy_per_bit::Real=1.0)
@@ -152,6 +153,87 @@ function block_rayleigh_channel(
     syms_c = ComplexF64.(syms)
     h = block_rayleigh(length(syms_c), block_length)
     return awgn(syms_c .* h, snr_db, bits_per_symbol), h
+end
+
+@doc raw"""
+    apply_fir(signal, taps) -> Vector
+
+Full linear convolution of `signal` with the FIR taps `taps`,
+
+```math
+y[k] = \sum_{j=1}^{L} h_j\, x[k-j+1],
+```
+
+with ``x[i] = 0`` outside `1:length(signal)`. The result has length ``n + L - 1``.
+
+This is the same model as the tall Toeplitz matrix in [`CommToolkit.Equalization.zf_equalize`](@ref): `zf_equalize(apply_fir(s, h), h)` recovers `s` when `h` is not identically zero, up to linear-algebra roundoff. Nothing is truncated and the convolution is not circular. The first and last ``L - 1`` samples are the filter warmup and the tail.
+
+`signal` and `taps` must be non-empty. The element type is `promote_type(eltype(signal), eltype(taps), Float64)`. Taps are used as given: they are not normalised, not drawn at random, and not a fading process.
+"""
+function apply_fir(signal::AbstractVector{<:Number}, taps::AbstractVector{<:Number})
+    n = length(signal)
+    m = length(taps)
+    n >= 1 || throw(ArgumentError("signal must be non-empty"))
+    m >= 1 || throw(ArgumentError("taps must be non-empty"))
+    T = promote_type(eltype(signal), eltype(taps), Float64)
+    out = zeros(T, n + m - 1)
+    @inbounds for i in 1:n
+        xi = convert(T, signal[i])
+        for j in 1:m
+            out[i + j - 1] += xi * convert(T, taps[j])
+        end
+    end
+    return out
+end
+
+function _entry_noise_var(::Type{T}, snr_db::Real, energy_per_bit::Real) where {T}
+    per_dim = energy_per_bit / (2 * snr_db_to_linear(snr_db))
+    return T <: Complex ? 2 * per_dim : per_dim
+end
+
+@doc raw"""
+    fir_channel(signal, taps, snr_db::Real; energy_per_bit::Real=1.0) -> (rx, noise_var)
+    fir_channel(signal, taps, snr_db::Real, bits_per_symbol::Integer) -> (rx, noise_var)
+
+[`apply_fir`](@ref), then AWGN on the convolved samples.
+
+# Arguments
+- `signal`, `taps`: passed to [`apply_fir`](@ref). Taps are deterministic. This is not [`CommToolkit.OFDM.TDLChannel`](@ref), not a 3GPP delay profile, and not a Jakes spectrum.
+- `snr_db`: ``E_b/N_0`` in decibels, the same convention as [`awgn`](@ref). It is **not** the signal-to-noise ratio of the samples after the FIR, and the tap energy is not folded into ``E_b``. `+Inf` adds no noise and does not draw from the global random stream.
+- `energy_per_bit`: ``E_b`` in the keyword method. Must be positive. It is not estimated from `signal`.
+- `bits_per_symbol`: positional method. Assumes ``E_s = 1``, so ``E_b = 1/\texttt{bits\_per\_symbol}``, and must be ≥ 1. Callers that used [`Modulation.modulate`](@ref) already have ``E_s = 1``.
+
+# Returns
+- `rx`: the convolved sequence, plus noise when `snr_db` is finite. Same length as [`apply_fir`](@ref).
+- `noise_var`: variance of one entry of that additive noise, in the sense [`CommToolkit.Equalization.mmse_equalize`](@ref) uses. A real convolution has variance ``N_0/2``; a complex convolution (complex `signal` or complex `taps`) has variance ``N_0 = E_b / (E_b/N_0)``. `+Inf` returns `noise_var = 0`.
+
+Pass `noise_var` to `mmse_equalize` only when the equalizer sees this same `rx`. A later matched filter colors the noise; the scalar above is then not the variance at the symbol sampler.
+"""
+function fir_channel(
+    signal::AbstractVector{<:Number},
+    taps::AbstractVector{<:Number},
+    snr_db::Real;
+    energy_per_bit::Real=1.0,
+)
+    energy_per_bit > 0 || throw(ArgumentError("energy_per_bit must be positive"))
+    y = apply_fir(signal, taps)
+    noise_var = _entry_noise_var(eltype(y), snr_db, energy_per_bit)
+    if isinf(snr_db) && snr_db > 0
+        return y, noise_var
+    end
+    return awgn(y, snr_db; energy_per_bit=energy_per_bit), noise_var
+end
+
+function fir_channel(
+    signal::AbstractVector{<:Number},
+    taps::AbstractVector{<:Number},
+    snr_db::Real,
+    bits_per_symbol::Integer,
+)
+    bits_per_symbol >= 1 || throw(ArgumentError(
+        "bits_per_symbol must be ≥ 1, got $bits_per_symbol",
+    ))
+    return fir_channel(signal, taps, snr_db; energy_per_bit=1.0 / bits_per_symbol)
 end
 
 end # module Channel
