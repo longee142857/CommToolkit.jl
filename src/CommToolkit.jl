@@ -1,11 +1,11 @@
 """
     CommToolkit
 
-Baseband communication-link simulations: Gray PSK/QAM (including ``M``-PSK) with hard decisions and AWGN bit LLRs, DBPSK/DQPSK differential detection, AWGN, symbol-wise flat Rayleigh and Rice, block-constant Rayleigh, ideal-CSI receive MRC, a deterministic single-carrier FIR, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, puncturing of that mother code to nominal rates 2/3 and 3/4, a rectangular block interleaver, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, a teaching CRC / MCS / Chase-HARQ loop, linear ZF/MMSE equalisation, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, raised-cosine pulses, a matched filter, and symbol-rate downsampling.
+Baseband communication-link simulations: Gray PSK/QAM (including ``M``-PSK) with hard decisions and AWGN bit LLRs, DBPSK/DQPSK differential detection, AWGN, symbol-wise flat Rayleigh and Rice, block-constant Rayleigh, ideal-CSI receive MRC, a deterministic single-carrier FIR, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, puncturing of that mother code to nominal rates 2/3 and 3/4, a rectangular block interleaver, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, a teaching CRC / MCS / Chase-HARQ loop, linear ZF/MMSE equalisation, trained symbol-spaced LMS, a finite-block ZF/MMSE decision-feedback equalizer, a textbook CP-OFDM chain, small MIMO detectors and Alamouti coding, raised-cosine pulses, a matched filter, and symbol-rate downsampling.
 
 The public names are re-exported from the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, and `Metrics`. Calling `using CommToolkit` does not load Plots; constellation, eye, and pulse figures are provided by the package extension `CommToolkitPlotsExt` after `using Plots`.
 
-This package is a simulation library for checking algorithms against textbook formulas. It does not implement 3GPP NR, LTE, or an O-RAN fronthaul, and it is not a production physical-layer stack. The LDPC codes are short teaching constructions, not NR base graphs. The MCS table and HARQ loop are a link-level teaching reference, not an NR scheduler. Convolutional puncturing is the classical periodic mask on the ``K = 3`` mother code, not NR rate matching. Block fading holds one coefficient fixed inside a block; it is not a Jakes model. The FIR is a tap vector supplied by the caller, not a fading process. The matched filter does not estimate timing or carrier phase.
+This package is a simulation library for checking algorithms against textbook formulas. It does not implement 3GPP NR, LTE, or an O-RAN fronthaul, and it is not a production physical-layer stack. The LDPC codes are short teaching constructions, not NR base graphs. The MCS table and HARQ loop are a link-level teaching reference, not an NR scheduler. Convolutional puncturing is the classical periodic mask on the ``K = 3`` mother code, not NR rate matching. Block fading holds one coefficient fixed inside a block; it is not a Jakes model. The FIR is a tap vector supplied by the caller, not a fading process. The matched filter does not estimate timing or carrier phase. LMS adapts on a training sequence and then freezes; it is not blind and it is not RLS. The block DFE feeds back sliced decisions on the same convolution matrix as the linear equalizers, and a wrong decision can propagate.
 """
 module CommToolkit
 
@@ -39,7 +39,8 @@ using .Link: CRC16_CCITT_POLY, crc16_ccitt, crc_append, crc_check,
     MCS, mcs_convolutional, mcs_ldpc, teaching_mcs_table, spectral_efficiency,
     ThresholdAMC, OuterLoopAMC, select_mcs, observe_acknack!, teaching_amc_thresholds,
     estimate_esn0_db, LinkReport, simulate_link
-using .Equalization: zf_equalizer, zf_equalize, mmse_equalizer, mmse_equalize
+using .Equalization: zf_equalizer, zf_equalize, mmse_equalizer, mmse_equalize,
+    lms_equalize, DFECoefficients, dfe_equalizer, dfe_equalize, zf_dfe, mmse_dfe
 using .OFDM: OFDMParams, TDLChannel, modulation,
     generate_ofdm_symbol, ofdm_tx,
     apply_multipath, apply_channel,
@@ -72,6 +73,7 @@ export
     ThresholdAMC, OuterLoopAMC, select_mcs, observe_acknack!, teaching_amc_thresholds,
     estimate_esn0_db, LinkReport, simulate_link,
     zf_equalizer, mmse_equalizer, zf_equalize, mmse_equalize,
+    lms_equalize, DFECoefficients, dfe_equalizer, dfe_equalize, zf_dfe, mmse_dfe,
     OFDMParams, TDLChannel,
     generate_ofdm_symbol, ofdm_tx, apply_multipath, apply_channel,
     extract_ofdm_symbols, ofdm_rx_known, ofdm_rx_ls, ofdm_rx_mmse,
