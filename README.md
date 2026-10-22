@@ -1,22 +1,23 @@
 # CommToolkit.jl
 
-基带通信链路仿真库（v0.5.0），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
+基带通信链路仿真库（v0.6.0），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
 
-本包**不是** 3GPP NR / LTE 物理层，**不是** O-RAN 前传实现，也**不是**生产级协议栈。OFDM 是教科书循环前缀模型，没有资源栅格、DMRS 或空口时隙结构。LDPC 是短码教学 / 参考实现，不是 NR BG1/BG2。v0.5 的 MCS 表、CRC 和 Chase 合并是链路级教学闭环，不是 NR CQI/MCS 表，也不是 HARQ 实体或调度器。
+本包**不是** 3GPP NR / LTE 物理层，**不是** O-RAN 前传实现，也**不是**生产级协议栈。OFDM 是教科书循环前缀模型，没有资源栅格、DMRS 或空口时隙结构。LDPC 是短码教学 / 参考实现，不是 NR BG1/BG2。MCS 表、CRC 和 Chase 合并是链路级教学闭环，不是 NR CQI/MCS 表，也不是 HARQ 实体或调度器。卷积删余是 ``K = 3`` 母码上的周期图案，不是 NR 速率匹配。块衰落在一块内系数恒定，不是 Jakes 模型。
 
 ## 功能
 
 公开接口从子模块扁平再导出，原有调用方式保持不变（例如 `modulate(bits, BPSK())`、`awgn(syms, snr_db, bits_per_symbol)`）。没有重命名，因此没有弃用别名。
 
 - **调制**（`Modulation`）：BPSK、Gray QPSK、方形 Gray M-QAM（`M ≥ 4` 且为平方、2 的幂）。单位符号能量。硬判决解调；AWGN 下逐比特 LLR（精确边际与 max-log），噪声方差与 `awgn` 的 ``\sigma^2 = N_0/2`` 相同。星座点与每符号比特数。
-- **信道**（`Channel`）：AWGN，`snr_db` 是 ``E_b/N_0``（dB）；平坦瑞利衰落，可选理想信道补偿。
-- **编码**（`Coding`）：码率 1/2、约束长度 ``K = 3``、八进制生成多项式 (7, 5) 的卷积码，尾比特终止。硬判决 Viterbi、以 LLR 为分支度量的软输入硬输出 Viterbi、终止码上的 log-BCJR 外信息，以及网格距离谱。另有短 LDPC 的教学实现：Gallager 正则构造与 Fan 阵列码（稀疏校验矩阵）、构造时一次 GF(2) 高斯消元得到的系统编码、泛洪 log-domain sum-product 与 min-sum（默认归一化 min-sum，``\alpha = 0.75``），综合征为 0 时早停。信道 LLR 与 `demodulate_soft` 相同：正 LLR 表示比特 0。不是 NR 基图。
+- **信道**（`Channel`）：AWGN，`snr_db` 是 ``E_b/N_0``（dB）；平坦瑞利衰落，可选理想信道补偿。另有块衰落：同一块内一个 ``h \sim \mathcal{CN}(0,1)``，块之间独立。
+- **编码**（`Coding`）：码率 1/2、约束长度 ``K = 3``、八进制生成多项式 (7, 5) 的卷积码，尾比特终止。硬判决 Viterbi、以 LLR 为分支度量的软输入硬输出 Viterbi、终止码上的 log-BCJR 外信息，以及网格距离谱。母码可用标准周期图案删余到名义码率 2/3 和 3/4；译码前把删余位填回 LLR 0。另有短 LDPC 的教学实现：Gallager 正则构造与 Fan 阵列码（稀疏校验矩阵）、构造时一次 GF(2) 高斯消元得到的系统编码、泛洪 log-domain sum-product 与 min-sum（默认归一化 min-sum，``\alpha = 0.75``），综合征为 0 时早停。信道 LLR 与 `demodulate_soft` 相同：正 LLR 表示比特 0。不是 NR 基图。
+- **交织**（`Interleaving`）：矩形块交织，按行写入、按列读出，对比特、符号和 LLR 是同一种置换。
 - **链路**（`Link`）：CRC-16（CCITT 多项式 ``x^{16}+x^{12}+x^5+1``，系统码，初值 0）、五档教学 MCS、Chase 合并（比特 LLR 相加，有限次重传）和按 ``E_s/N_0`` 切换的 MCS。仿真信噪比是 ``E_s/N_0``，``E_s = 1``，``\sigma^2 = N_0/2``，与 `awgn` / `demodulate_soft` 相同。返回 BLER、BER、吞吐（送达净荷比特 / 信道符号，含重传）和频谱效率。没有速率匹配、增量冗余、多进程 HARQ、调度或功率控制。
 - **均衡**（`Equalization`）：频率选择性信道上的线性 ZF / MMSE。
 - **OFDM**（`OFDM`）：循环前缀 OFDM 收发、抽头延迟线、已知 CSI / LS / 逐导频收缩后线性插值、van de Beek 符号定时与小数倍频偏。
 - **MIMO**（`MIMO`）：i.i.d. 瑞利信道，ML、ZF、MMSE、按行范数排序的 SIC，ZF 与 SVD 预编码，Alamouti ``2\times1`` 与 ``2\times2``。
 - **脉冲**（`Visualization`）：升余弦与根升余弦。星座图、眼图、脉冲频谱由包扩展 `CommToolkitPlotsExt` 提供，只有 `using Plots` 之后才加载。
-- **指标**（`Metrics`）：误码率、dB 与线性信噪比换算。
+- **指标**（`Metrics`）：误码率、符号错误率、按块计的帧错误率、dB 与线性信噪比换算。
 
 `CommToolkit.modulation` 根据 `OFDMParams` 选择 QPSK 或 QAM，不在 `export` 列表里。
 
@@ -67,7 +68,8 @@ Pkg.test("CommToolkit")
 src/CommToolkit.jl    模块入口与再导出
 src/modulation.jl     Modulation
 src/channel.jl        Channel
-src/coding.jl         Coding（包含 src/ldpc.jl）
+src/coding.jl         Coding（包含 src/ldpc.jl；卷积删余在本文件）
+src/interleaving.jl   Interleaving：矩形块交织
 src/ldpc.jl           短 LDPC：Gallager、阵列码、系统编码、泛洪译码
 src/link.jl           Link：CRC-16、教学 MCS、Chase 合并、自适应选择
 src/equalization.jl   Equalization
@@ -89,9 +91,11 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 
 ## 已知限制
 
-- 卷积码仍是未删余的 (7, 5)、``K = 3``。软输入 Viterbi 输出硬比特，并且和硬判决译码一样不把最终状态钉在 0。BCJR 按终止码把尾比特固定为 0、最终状态固定在 0，返回信息比特外信息（后验 LLR 减去先验）；码是非系统的，没有信道系统位可减。没有 SOVA、交织、删余或 Turbo。联合界按未终止码的第一事件界计算。
-- LDPC 只覆盖短的教学构造。Gallager 的列置换由本实现的 SplitMix64 规则确定，不是 Gallager 1962 系综里的某一个唯一矩阵，也不保证围长；没有 PEG，没有非正则优化，也没有按密度进化重估 ``\alpha``、``\beta``（固定为 0.75 与 0.15）。编码是构造时的一次稠密高斯消元，边长不超过 4096，不是 Richardson–Urbanke 的线性时间编码器。译码是泛洪调度，不是分层调度。有环时 sum-product 不等于 MAP。``[7,4]`` Hamming 码含 4 环，全零字上第 7 位（列重 3）的单比特翻转会收敛到另一个码字。信道硬判决已经是码字且早停打开时，`posterior` 就是信道 LLR，迭代次数为 0。冗余校验行留在 Tanner 图里。没有 NR BG1/BG2、速率匹配、打孔、缩短，也没有把解调器外信息再送回译码器。CRC 和 Chase 合并在 `Link` 里，不在 LDPC 译码器内部。
-- 链路闭环是单链路 AWGN。MCS 表只有五档，频谱效率把 16 位 CRC 和卷积尾比特算作开销，所以低于母码率乘 ``\log_2 M``。门限是这条表、这个块长上的教学开关，不是 NR CQI，也不会随信道重新估计。3 dB 和 11 dB 附近两条吞吐曲线靠得近，换随机数流可能把交点挪约 1 dB。Chase 合并重复同一编码块；没有增量冗余，因为那需要打孔或速率匹配。重传次数有限，失败的块丢弃。外环只移动一个 SNR 偏移，不控制功率，也没有 HARQ 进程号或时序。二阶矩 ``E_s/N_0`` 估计在短块上有偏。CRC-16 检不出 ``g(x)`` 的倍式。没有多用户，也没有调度器。
+- 卷积码母码仍是 (7, 5)、``K = 3``。删余图案只有两张：1/2→2/3 的 ``[1, 1, 1, 0]`` 和 1/2→3/4 的 ``[1, 1, 1, 0, 0, 1]``，按 ``(g_1, g_2)`` 码流顺序周期作用，尾比特一并删余。这是 Yasuda 等人与 IEEE 802.11 用在 1/2 母码上的图案，不是针对 (7, 5) 重新搜索的自由距表。没有其它码率。``depuncture`` 在软 LLR 上把删余位填 0（擦除）。硬判决 Viterbi 只接受 0/1，不把填进去的数当成擦除；删余后的硬判决要先换成 ``1-2\hat{c}`` 再填 0，送给软 Viterbi 或 BCJR。软输入 Viterbi 输出硬比特，并且和硬判决译码一样不把最终状态钉在 0。BCJR 按终止码把尾比特固定为 0、最终状态固定在 0，返回信息比特外信息（后验 LLR 减去先验）；码是非系统的，没有信道系统位可减。没有 SOVA 或 Turbo。联合界仍按未删余、未终止母码的第一事件界计算，不覆盖删余码。
+- 交织只有矩形块交织（按行写入、按列读出）。没有卷积交织，也没有和删余图案或 MCS 绑在一起的交织器。逐符号独立衰落上，块交织不改变每个符号的边际信噪比。
+- 平坦瑞利仍是逐符号独立的 ``h``。块衰落在一块内 ``h`` 恒定、块之间独立，``\mathbb{E}[|h|^2] = 1``。没有 Jakes 谱、多普勒或时间相关成形。``rx ./ h`` 之后各符号噪声方差是 ``\sigma^2/|h|^2``，不能再拿一个标量方差做软解调。相干 BPSK 的 LLR 是 ``2\Re(h^* y)/\sigma^2``。
+- LDPC 只覆盖短的教学构造。Gallager 的列置换由本实现的 SplitMix64 规则确定，不是 Gallager 1962 系综里的某一个唯一矩阵，也不保证围长；没有 PEG，没有非正则优化，也没有按密度进化重估 ``\alpha``、``\beta``（固定为 0.75 与 0.15）。编码是构造时的一次稠密高斯消元，边长不超过 4096，不是 Richardson–Urbanke 的线性时间编码器。译码是泛洪调度，不是分层调度。有环时 sum-product 不等于 MAP。``[7,4]`` Hamming 码含 4 环，全零字上第 7 位（列重 3）的单比特翻转会收敛到另一个码字。信道硬判决已经是码字且早停打开时，`posterior` 就是信道 LLR，迭代次数为 0。冗余校验行留在 Tanner 图里。没有 NR BG1/BG2、LDPC 速率匹配、LDPC 打孔、缩短，也没有把解调器外信息再送回译码器。CRC 和 Chase 合并在 `Link` 里，不在 LDPC 译码器内部。
+- 链路闭环是单链路 AWGN。MCS 表只有五档，频谱效率把 16 位 CRC 和卷积尾比特算作开销，所以低于母码率乘 ``\log_2 M``。门限是这条表、这个块长上的教学开关，不是 NR CQI，也不会随信道重新估计。3 dB 和 11 dB 附近两条吞吐曲线靠得近，换随机数流可能把交点挪约 1 dB。Chase 合并重复同一编码块；闭环里没有增量冗余，卷积删余也没有接到 Chase 上。重传次数有限，失败的块丢弃。外环只移动一个 SNR 偏移，不控制功率，也没有 HARQ 进程号或时序。二阶矩 ``E_s/N_0`` 估计在短块上有偏。CRC-16 检不出 ``g(x)`` 的倍式。没有多用户，也没有调度器。
 - 软解调假定星座等先验、符号独立。LLR 是信道比特边际，没有把译码器外信息反馈进解调器。`approx = :maxlog` 只保留每个比特子集里的最近星座点。衰落系数要由调用者先补偿；本函数不读取 CSI。
 - OFDM 的 “MMSE” 是逐导频幅度收缩后再做线性插值，不是 Edfors 的 LMMSE。多径上线性插值有与信噪比无关的误差平底。`ofdm_sync` 校正频偏，但不按定时估计平移缓存。
 - `pulse_shape` 把卷积结果截成 `length(symbols) * sps`，滤波器尾部被丢掉。
