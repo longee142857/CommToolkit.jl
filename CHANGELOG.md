@@ -1,5 +1,15 @@
 # 变更记录
 
+## 0.8.5
+
+平坦 Clarke/Jakes 时间相关瑞利，以及逐符号独立的 Nakagami-m。不是 Jakes 1974 的正弦和，不是频率选择性抽头，没有接到 OFDM、MIMO 或 MCS / HARQ 上。
+
+- Jakes：`jakes_fading(n, fd, Ts)`。`fd` 是最大多普勒（Hz），`Ts` 是采样间隔（秒），`fd * Ts` 必须小于 1/2。谱是 Clarke 的 U 形 ``S(f) = 1/(\pi f_d \sqrt{1-(f/f_d)^2})``，``|f| < f_d``。实现是 `n` 点 DFT：每个格子的功率等于 ``S`` 在该格子上的积分（原函数 ``\arcsin(f/f_d)/\pi``），非零格子上放独立 ``\mathcal{CN}(0, P_k)``，时间序列是 ``n \cdot \mathrm{ifft}``。集合自相关是这些格子功率的逆 DFT，格子变细时趋于 ``J_0(2\pi f_d \tau)``。序列以 `n` 为周期。`fd = 0` 不跑 FFT，整段是同一个 ``\mathcal{CN}(0,1)``。
+- 信道：`jakes_channel` 在 ``h x`` 之后按 `awgn` 的 ``E_b/N_0`` 加噪。每个样本的边际仍是 ``\mathcal{CN}(0,1)``，所以理想 CSI 相干 BPSK 的平均误码率与逐符号瑞利相同。时间相关改变的是突发，不是这个平均。
+- Nakagami-m：`nakagami_envelope` 生成 ``\mathbb{E}[R^2] = 1`` 的幅度，`m ≥ 1/2`。`nakagami_fading` 是复包络。`m = 1` 与 `rayleigh_channel` 使用同一套 `randn` 顺序。`2m` 在 `Float64` 里是整数时，幅度平方是 `2m` 个标准正态平方的平均；其余 `m` 用 Marsaglia–Tsang 的 gamma 抽样，相位独立均匀。`m = Inf` 是单位幅度加均匀相位，不是 Rice `K = Inf` 的 ``h = 1``。
+- 信道：`nakagami_channel`，`m` 是必填关键字。理想 CSI 相干 BPSK 对照 Gamma 矩生成函数的 Craig 积分。整数 `m` 等于 `m` 条 i.i.d. 瑞利支路的 MRC，每条支路的平均 ``E_b/N_0`` 是 ``\bar\gamma_b/m``。
+- 版本：已有函数的位置参数和返回值不变。0.8.4 已经是 Gardner、Costas 与 Schmidl–Cox。这一刀是新的信道族，按 0.x 记为 0.8.5，而不是再占 0.8.4，也不升到 1.0。
+
 ## 0.8.4
 
 单载波定时和载波的教学环，以及 OFDM 的 Schmidl–Cox 前导。不是生产级同步。没有接到 MCS / HARQ，没有改 van de Beek 的 `ofdm_sync`，也没有动 SOVA、Turbo、BCH、Jakes、NR 或 O-RAN。0.8.0 的 EVM、LFSR 扰码和 SVD 注水，以及 0.8.3 的 SOVA、短 Turbo 和 BCH(15,7) 保持原样。

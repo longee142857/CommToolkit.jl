@@ -3,8 +3,13 @@ module Channel
 import ..Modulation
 using ..Metrics: snr_db_to_linear
 
+import FFTW: ifft
+
 export awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel,
-    rice_fading, rice_channel, mrc, mrc_channel,
+    jakes_fading, jakes_channel,
+    rice_fading, rice_channel,
+    nakagami_envelope, nakagami_fading, nakagami_channel,
+    mrc, mrc_channel,
     apply_fir, fir_channel
 
 @doc raw"""
@@ -101,7 +106,7 @@ h \sim \mathcal{CN}(0, 1), \qquad \mathbb{E}[|h|^2] = 1.
 
 Block ``b = 0, 1, \ldots`` occupies indices ``b \cdot \texttt{block\_length} + 1`` through the end of that block. The last block is shorter when `n` is not a multiple of `block_length`. `block_length == 1` is symbol-by-symbol fading, the same marginal law as [`rayleigh_channel`](@ref).
 
-Blocks are independent. There is no Doppler filter and no Jakes spectrum. The draws use `randn`, on the same global stream as `rayleigh_channel`.
+Blocks are independent. There is no Doppler filter. The Clarke spectrum is [`jakes_fading`](@ref), not this function. The draws use `randn`, on the same global stream as `rayleigh_channel`.
 """
 function block_rayleigh(n::Integer, block_length::Integer)
     n = Int(n)
@@ -415,6 +420,343 @@ function mrc_channel(
         y[ℓ, :] = awgn(x .* hl, snr_db, bits_per_symbol)
     end
     return mrc(y, h), h
+end
+
+function _jakes_params(fd::Real, Ts::Real)
+    f = float(fd)
+    t = float(Ts)
+    (isfinite(f) && f >= 0) || throw(ArgumentError(
+        "fd must be a finite maximum Doppler frequency ≥ 0, in hertz, got $fd",
+    ))
+    (isfinite(t) && t > 0) || throw(ArgumentError(
+        "Ts must be a finite sample interval > 0, in seconds, got $Ts",
+    ))
+    f * t < 0.5 || throw(ArgumentError(
+        "fd*Ts must be < 1/2 so the Clarke spectrum does not alias, got fd*Ts=$(f * t)",
+    ))
+    return f, t
+end
+
+"""Power of the unit-area Clarke spectrum on `[f_lo, f_hi] ∩ [-fd, fd]`."""
+function _clarke_interval_power(f_lo::Float64, f_hi::Float64, fd::Float64)
+    a = max(f_lo, -fd)
+    b = min(f_hi, fd)
+    b <= a && return 0.0
+    return (asin(b / fd) - asin(a / fd)) / π
+end
+
+"""
+Clarke bin powers in FFT order, summing to 1.
+
+Bin `k` (0-based) covers one DFT cell of width `1/(N Ts)`. For even `N` the
+Nyquist cell is split across `±1/(2 Ts)`. `fd` is strictly positive;
+`jakes_fading` handles `fd == 0` before calling this.
+"""
+function _clarke_bin_powers(N::Int, fd::Float64, Ts::Float64)
+    P = zeros(N)
+    Δf = 1 / (N * Ts)
+    fs = 1 / Ts
+    for k in 0:(N - 1)
+        if iseven(N) && k == N ÷ 2
+            P[k + 1] = _clarke_interval_power(fs / 2 - Δf / 2, fs / 2, fd) +
+                       _clarke_interval_power(-fs / 2, -fs / 2 + Δf / 2, fd)
+        elseif k <= (N - 1) ÷ 2
+            P[k + 1] = _clarke_interval_power((k - 0.5) * Δf, (k + 0.5) * Δf, fd)
+        else
+            kk = k - N
+            P[k + 1] = _clarke_interval_power((kk - 0.5) * Δf, (kk + 0.5) * Δf, fd)
+        end
+    end
+    s = sum(P)
+    s > 0 || error("Clarke bin powers summed to $s")
+    s == 1 && return P
+    return P .* inv(s)
+end
+
+@doc raw"""
+    jakes_fading(n::Integer, fd::Real, Ts::Real) -> Vector{ComplexF64}
+
+`n` samples of a unit-power, flat, time-correlated Rayleigh process at spacing `Ts` seconds, with maximum Doppler `fd` hertz.
+
+The autocorrelation the construction targets is Clarke's,
+
+```math
+\mathbb{E}[h_t h_{t-m}^{*}] = J_0(2\pi f_d m T_s),
+\qquad \mathbb{E}[|h|^2] = 1,
+```
+
+which is the inverse Fourier transform of the Jakes spectrum
+
+```math
+S(f) = \frac{1}{\pi f_d \sqrt{1 - (f/f_d)^2}}, \qquad |f| < f_d,
+```
+
+and ``S(f) = 0`` otherwise (Clarke, Bell System Technical Journal, 1968; the spectrum is the one named in Jakes, *Microwave Mobile Communications*, 1974). ``\mathbb{E}[h_t h_{t-m}] = 0``: the process is proper, so the in-phase and quadrature components are uncorrelated and each has variance ``1/2``.
+
+# Implementation
+This is **not** the classical Jakes sum of sinusoids. It is one period of a circularly symmetric complex Gaussian process synthesised on an `n`-point DFT:
+
+1. FFT bin ``k`` is given power ``P_k`` equal to the integral of ``S`` over that bin. The antiderivative is ``\arcsin(f/f_d)/\pi``, so the band-edge singularity is integrable and no bin is sampled at ``f = \pm f_d``. For even `n` the Nyquist bin is the pair of half-cells at ``\pm 1/(2 T_s)``.
+2. ``P_k`` is divided by ``\sum P`` so the discrete spectrum has unit power. The sum differs from 1 only by rounding in `asin`.
+3. Bins with ``P_k > 0`` get independent ``\mathcal{CN}(0, P_k)`` coefficients. Zero-power bins stay zero and do not draw. The time series is `n * ifft` of that vector (`FFTW.ifft` divides by `n`).
+
+The ensemble autocorrelation is exactly the inverse DFT of ``\{P_k\}``, including the periodic replicas of an `n`-point DFT. It approaches ``J_0(2\pi f_d m T_s)`` when the bins are fine, that is when `n * fd * Ts` is large. A short record, or a Doppler so small that only the DC bin is occupied, does not resolve ``J_0``. The sequence is exactly periodic with period `n`. It is not an IIR filter, not a streaming generator, and not a tapped-delay line.
+
+`fd = 0` skips the FFT. One ``\mathcal{CN}(0, 1)`` draw is repeated on every sample, which is ``J_0(0) = 1``.
+
+# Arguments
+- `n`: number of samples. `n ≥ 0`. `n = 0` returns an empty vector and does not draw.
+- `fd`: maximum Doppler in hertz. Finite, `≥ 0`.
+- `Ts`: sample interval in seconds. Finite and `> 0`.
+
+`fd * Ts` must lie in `[0, 1/2)`. A symbol rate of 10 kHz and a 50 Hz Doppler is `jakes_fading(n, 50, 1e-4)`.
+
+# Random draws
+For `fd = 0`: `randn()` for the real part, then `randn()` for the imaginary part. For `fd > 0`: the same pair, in increasing FFT-bin index, and only for bins with positive Clarke power. [`jakes_channel`](@ref) then passes the faded symbols through [`awgn`](@ref), which draws its own noise.
+
+Each sample is exactly ``\mathcal{CN}(0, 1)`` in ensemble, for every admissible `fd`. Ideal-CSI coherent BPSK therefore has the same **average** bit error rate as symbol-wise [`rayleigh_channel`](@ref). The correlation changes the burst structure, not that average. This is not frequency-selective fading, not Rice, and not a 3GPP delay profile.
+"""
+function jakes_fading(n::Integer, fd::Real, Ts::Real)
+    n = Int(n)
+    n >= 0 || throw(ArgumentError("n must be ≥ 0, got $n"))
+    f, t = _jakes_params(fd, Ts)
+    n == 0 && return ComplexF64[]
+    if f == 0
+        c = (randn() + im * randn()) / sqrt(2)
+        return fill(c, n)
+    end
+    P = _clarke_bin_powers(n, f, t)
+    spec = zeros(ComplexF64, n)
+    @inbounds for k in 1:n
+        Pk = P[k]
+        Pk > 0 || continue
+        σ = sqrt(Pk / 2)
+        spec[k] = σ * randn() + im * σ * randn()
+    end
+    return n .* ifft(spec)
+end
+
+@doc raw"""
+    jakes_channel(symbols, snr_db::Real, bits_per_symbol::Integer, fd::Real, Ts::Real) -> (rx, h)
+    jakes_channel(symbols, snr_db::Real, bits_per_symbol::Integer, fd::Real, Ts::Real, perfect_csi::Bool)
+
+Flat time-correlated Rayleigh fading, then AWGN,
+
+```math
+y = h x + n,
+```
+
+with `h` from [`jakes_fading`](@ref). Real `symbols` are promoted to complex. ``E_s = 1`` is assumed and is not estimated. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_b = 1/\texttt{bits\_per\_symbol}``. Because ``\mathbb{E}[|h|^2] = 1``, `snr_db` is the average ``E_b/N_0``. ``\mathrm{snr\_db} = +\infty`` adds a zero noise vector and still draws that vector through [`awgn`](@ref).
+
+`fd` and `Ts` are the maximum Doppler in hertz and the sample interval in seconds, as on [`jakes_fading`](@ref). `fd * Ts` must be `< 1/2`.
+
+# Returns
+- Without `perfect_csi`: `(rx, h)`, the faded observation and the coefficients that were applied.
+- `perfect_csi = true`: the zero-forced samples `rx ./ h`, and `h` is dropped. A coefficient that lands on 0 yields `NaN` in that entry.
+- `perfect_csi = false`: `rx` only, with no phase compensation.
+
+# Coherent use
+Ideal-CSI coherent BPSK has conditional bit error rate ``Q(\sqrt{2 |h|^2 \bar\gamma_b})``. The expectation over the marginal of `h` is the Rayleigh formula on [`rayleigh_channel`](@ref), at every `fd`. The time correlation does not enter that average. Errors arrive in bursts of length on the order of ``1/(f_d T_s)`` samples, so a bit-i.i.d. confidence interval computed on one drop is miscalibrated.
+
+Zero-forcing scales the noise on symbol ``i`` to variance ``\sigma^2 / |h_i|^2``. One scalar variance is the wrong input to [`Modulation.demodulate_soft`](@ref). The coherent BPSK LLR is ``2\Re(h_i^* y_i) / \sigma^2``.
+
+This is one flat coefficient per symbol. It is not a frequency-selective Jakes tap model, not [`block_rayleigh`](@ref), and not [`CommToolkit.OFDM.TDLChannel`](@ref).
+"""
+function jakes_channel(
+    syms::AbstractVector,
+    snr_db::Real,
+    bits_per_symbol::Integer,
+    fd::Real,
+    Ts::Real,
+)
+    bits_per_symbol >= 1 || throw(ArgumentError("bits_per_symbol must be ≥ 1"))
+    syms_c = ComplexF64.(syms)
+    h = jakes_fading(length(syms_c), fd, Ts)
+    return awgn(syms_c .* h, snr_db, bits_per_symbol), h
+end
+
+function jakes_channel(
+    syms::AbstractVector,
+    snr_db::Real,
+    bits_per_symbol::Integer,
+    fd::Real,
+    Ts::Real,
+    perfect_csi::Bool,
+)
+    rx, h = jakes_channel(syms, snr_db, bits_per_symbol, fd, Ts)
+    return perfect_csi ? rx ./ h : rx
+end
+
+function _nakagami_m(m::Real)
+    mf = float(m)
+    if isinf(mf) && mf > 0
+        return mf
+    end
+    (isfinite(mf) && mf >= 0.5) || throw(ArgumentError(
+        "m must be the Nakagami parameter ≥ 1/2 (or +Inf), got $m",
+    ))
+    return mf
+end
+
+"""Degrees of freedom `2m` when that value is an integer in `Float64`; otherwise `nothing`."""
+function _nakagami_chi2_df(m::Float64)
+    tw = 2 * m
+    k = round(Int, tw)
+    (k >= 1 && tw == k) || return nothing
+    return k
+end
+
+"""Gamma(shape ≥ 1, scale = 1) by Marsaglia and Tsang, ACM TOMS 26(3), 2000."""
+function _gamma_marsaglia_tsang(a::Float64)
+    d = a - 1 / 3
+    c = inv(sqrt(9 * d))
+    for _ in 1:10_000
+        x = randn()
+        v = 1 + c * x
+        while v <= 0
+            x = randn()
+            v = 1 + c * x
+        end
+        v = v * v * v
+        u = rand()
+        if u < 1 - 0.0331 * (x^2)^2 || log(u) < 0.5 * x^2 + d * (1 - v + log(v))
+            return d * v
+        end
+    end
+    error("Marsaglia–Tsang gamma sampler exceeded 10000 rejections")
+end
+
+"""Gamma(shape = `a` > 0, scale = 1). Shapes below 1 use the Marsaglia–Tsang reduction."""
+function _gamma_scale1(a::Float64)
+    a >= 1 && return _gamma_marsaglia_tsang(a)
+    return _gamma_marsaglia_tsang(a + 1) * rand()^(1 / a)
+end
+
+function _nakagami_chi2_envelope(n::Int, k::Int)
+    z = randn(k * n)
+    R = Vector{Float64}(undef, n)
+    @inbounds for i in 1:n
+        s = 0.0
+        base = (i - 1) * k
+        for j in 1:k
+            s += z[base + j]^2
+        end
+        R[i] = sqrt(s / k)
+    end
+    return R
+end
+
+@doc raw"""
+    nakagami_envelope(n::Integer, m::Real) -> Vector{Float64}
+
+`n` i.i.d. Nakagami-m amplitudes with ``\mathbb{E}[R^2] = 1`` and ``m \ge 1/2``,
+
+```math
+p(r) = \frac{2 m^m}{\Gamma(m)} r^{2m-1} \exp(-m r^2), \qquad r \ge 0.
+```
+
+``R^2`` is Gamma with shape `m` and scale `1/m`. There is no Doppler filter: samples are independent. This is the envelope only. The complex coefficient is [`nakagami_fading`](@ref).
+
+# Generator
+- `m = 1`: ``R = \sqrt{(Z_1^2 + Z_2^2)/2}`` with `randn(n)` then `randn(n)`. The modulus of [`nakagami_fading`](@ref) at `m = 1` consumes the same stream.
+- `m = Inf`: the constant `1`. No random draw. This is a deterministic amplitude, not a deterministic complex coefficient.
+- `2m` an integer value in `Float64` (so `m = 1/2, 1, 3/2, 2, …`, and the `m = 1` case above is special-cased out of this branch): ``R^2`` is the mean of `2m` squared standard normals, drawn as one `randn(2m * n)` vector, sample by sample. `m = 1/2` is ``R = |Z|``.
+- Every other finite `m`: Marsaglia and Tsang's rejection sampler for the gamma power (ACM Trans. Math. Softw. 26(3):363–372, 2000), then the positive square root. Shapes below 1 use their ``\Gamma(m) = \Gamma(m+1)\,U^{1/m}`` reduction. The number of `randn` / `rand` calls depends on the accept/reject path.
+
+`n ≥ 0`. `n = 0` returns an empty vector and does not draw. `m < 1/2`, `NaN`, and a negative infinity are rejected.
+"""
+function nakagami_envelope(n::Integer, m::Real)
+    n = Int(n)
+    n >= 0 || throw(ArgumentError("n must be ≥ 0, got $n"))
+    mf = _nakagami_m(m)
+    n == 0 && return Float64[]
+    isinf(mf) && return ones(n)
+    if mf == 1
+        return hypot.(randn(n), randn(n)) ./ sqrt(2)
+    end
+    k = _nakagami_chi2_df(mf)
+    if k !== nothing
+        return _nakagami_chi2_envelope(n, k)
+    end
+    scale = inv(mf)
+    R = Vector{Float64}(undef, n)
+    @inbounds for i in 1:n
+        R[i] = sqrt(_gamma_scale1(mf) * scale)
+    end
+    return R
+end
+
+@doc raw"""
+    nakagami_fading(n::Integer, m::Real) -> Vector{ComplexF64}
+
+`n` i.i.d. complex Nakagami-m coefficients with ``\mathbb{E}[|h|^2] = 1``.
+
+For `m = 1` the law is ``\mathcal{CN}(0, 1)``, and the draws match the coefficient inside [`rayleigh_channel`](@ref) and [`rice_fading`](@ref) at `K = 0`: `randn(n)` for the real part, then `randn(n)` for the imaginary part. No separate phase draw.
+
+For every other `m`, the amplitude is [`nakagami_envelope`](@ref) and the phase is an independent ``\mathrm{Unif}[0, 2\pi)`` from `2π * rand(n)`, taken after the amplitude stream. The phase is **not** tied to a Gaussian in-phase/quadrature pair when `m ≠ 1`. `m = Inf` is therefore a uniform phase on the unit circle, not the constant `1` returned by [`rice_fading`](@ref) at `K = Inf`.
+
+`m` is the Nakagami parameter, ``\ge 1/2`` or `+Inf`, not in decibels. `n ≥ 0`. `n = 0` returns an empty vector and does not draw. Samples are independent across time. This is not [`jakes_fading`](@ref).
+"""
+function nakagami_fading(n::Integer, m::Real)
+    n = Int(n)
+    n >= 0 || throw(ArgumentError("n must be ≥ 0, got $n"))
+    mf = _nakagami_m(m)
+    n == 0 && return ComplexF64[]
+    if mf == 1
+        return (randn(n) .+ im .* randn(n)) ./ sqrt(2)
+    end
+    return nakagami_envelope(n, mf) .* cis.(2π .* rand(n))
+end
+
+@doc raw"""
+    nakagami_channel(symbols, snr_db::Real, bits_per_symbol::Integer; m::Real) -> (rx, h)
+    nakagami_channel(symbols, snr_db::Real, bits_per_symbol::Integer, perfect_csi::Bool; m::Real)
+
+i.i.d. flat Nakagami-m fading, then AWGN,
+
+```math
+y = h x + n,
+```
+
+with `h` from [`nakagami_fading`](@ref). Real `symbols` are promoted to complex. ``E_s = 1`` is assumed and is not estimated. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_b = 1/\texttt{bits\_per\_symbol}``. Because ``\mathbb{E}[|h|^2] = 1``, `snr_db` is the average ``E_b/N_0``. ``\mathrm{snr\_db} = +\infty`` adds a zero noise vector and still draws that vector through [`awgn`](@ref), except that the fading draw follows [`nakagami_fading`](@ref) (`m = Inf` draws only the phase).
+
+`m` is a required keyword. It is the Nakagami parameter on [`nakagami_fading`](@ref), not a decibel value.
+
+# Returns
+- Without `perfect_csi`: `(rx, h)`, the faded observation and the coefficients.
+- `perfect_csi = true`: the zero-forced samples `rx ./ h`, and `h` is dropped. A coefficient that lands on 0 yields `NaN` in that entry.
+- `perfect_csi = false`: `rx` only, with no phase compensation.
+
+# Coherent BPSK
+With perfect CSI the conditional bit error rate is ``Q(\sqrt{2 |h|^2 \bar\gamma_b})``. Averaging over this envelope is the Gamma-MGF integral used by the tests,
+
+```math
+P_b = \frac{1}{\pi}\int_0^{\pi/2}
+\left(\frac{m\sin^2\theta}{m\sin^2\theta + \bar\gamma_b}\right)^{m} d\theta.
+```
+
+`m = 1` reduces to the Rayleigh formula on [`rayleigh_channel`](@ref). For positive integer `m` the same integral equals `m`-branch i.i.d. Rayleigh MRC with per-branch average ``\bar\gamma_b / m`` (the Gamma(`m`) power is the sum of `m` unit-mean exponential powers, scaled back to average 1). `m = Inf` has ``|h| = 1``, so perfect CSI removes only a per-symbol phase and the bit error rate is ordinary AWGN. That phase is still random: `m = Inf` is not [`rice_channel`](@ref) at `K = Inf`.
+
+Zero-forcing scales the noise on symbol ``i`` to variance ``\sigma^2 / |h_i|^2``. One scalar variance is the wrong input to [`Modulation.demodulate_soft`](@ref). The coherent BPSK LLR is ``2\Re(h_i^* y_i) / \sigma^2``.
+
+Coefficients are independent from symbol to symbol. There is no Jakes spectrum and no spatial correlation.
+"""
+function nakagami_channel(syms::AbstractVector, snr_db::Real, bits_per_symbol::Integer; m::Real)
+    bits_per_symbol >= 1 || throw(ArgumentError("bits_per_symbol must be ≥ 1"))
+    syms_c = ComplexF64.(syms)
+    h = nakagami_fading(length(syms_c), m)
+    return awgn(syms_c .* h, snr_db, bits_per_symbol), h
+end
+
+function nakagami_channel(
+    syms::AbstractVector,
+    snr_db::Real,
+    bits_per_symbol::Integer,
+    perfect_csi::Bool;
+    m::Real,
+)
+    rx, h = nakagami_channel(syms, snr_db, bits_per_symbol; m=m)
+    return perfect_csi ? rx ./ h : rx
 end
 
 end # module Channel
