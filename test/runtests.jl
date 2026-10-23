@@ -11,7 +11,7 @@ ENV["GKSwstype"] = get(ENV, "GKSwstype", "nul")
 @testset "Package hygiene" begin
     text = read(joinpath(pkgdir(CommToolkit), "Project.toml"), String)
     @test occursin("b0120378-1646-4a57-aae9-1dec7113c692", text)
-    @test pkgversion(CommToolkit) == v"0.8.5"
+    @test pkgversion(CommToolkit) == v"0.9.0"
     @test !occursin("a1b2c3d4-e5f6-7890-abcd-ef1234567890", text)
     deps = match(r"(?s)\[deps\](.*?)(?:\n\[|\z)", text).captures[1]
     @test !occursin("Plots", deps)
@@ -709,6 +709,7 @@ include("scrambling.jl")
 include("waterfill.jl")
 include("sync.jl")
 include("jakes_nakagami.jl")
+include("bicm.jl")
 
 @testset "Plots extension" begin
     @test_throws ErrorException plot_constellation(ComplexF64[1.0, -1.0], BPSK())

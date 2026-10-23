@@ -1,5 +1,14 @@
 # 变更记录
 
+## 0.9.0
+
+比特交织编码调制的迭代解调 / 译码（BICM-ID）。不是 5G NR BICM，没有 EXIT 图，没有接到 MCS / HARQ，也没有动 Jakes、同步或路线 C。P2 的这一块到此收口，所以记为 0.9.0，而不是 0.8.6，也不升到 1.0。已有函数的位置参数和返回值不变。
+
+- 映射：`bicm_map`。`:conv` 走 `conv_encode`，`:ldpc` 走 `ldpc_encode`，`:turbo` 走 `turbo_encode`。可选 `block_interleave`（`n_rows = 0` 表示不交织）。默认标签是现有 Gray 星座的下标，MSB 在前。`bicm_psk8_id_labels` 把 8-PSK 在角度 ``2\pi m/8`` 上标成 ``(0,4,2,6,1,5,3,7)``：最高位是 ``m \bmod 2``，每个子集是最小距离 ``\sqrt{2}`` 的 QPSK。这是 Ungerboeck 的集合分割，不是 Gray，也不是 3GPP 标签。
+- 解映射：`bicm_demap`。Gray、零先验、`gains === nothing` 时直接返回 `demodulate_soft`。有先验时，比特 ``i`` 的外信息不再加进自己的度量，精确边际或 max-log 用的仍是 ``|y-hs|^2/N_0``，``N_0 = 2\sigma^2``。`gains` 是逐符号理想 CSI。不做 DBPSK / DQPSK。BPSK 和 Gray QPSK 的外信息与先验无关。
+- 迭代：`bicm_decode`，1 到 32 次，默认 4。`:bcjr` 在终止的 (7, 5) 上做编码比特 log-MAP，分支度量和尾比特边界与 `bcjr_decode` 相同；信息比特 LLR 在一次迭代、零信息先验时与 `bcjr_decode` 一致。编码比特外信息截到 `llr_clip`（默认 50）后再交织，作为下一次解调的先验。`:ldpc` 调用 `ldpc_decode_details`，`early_stop=false`，外信息是后验减去解调器送来的信道 LLR。`:sova` 和 `:turbo` 只能 `iterations = 1`：公开接口没有编码比特外信息。
+- 对照：`test/bicm.jl`。AWGN、``E_b/N_0 = 6\,\mathrm{dB}``、80 帧、每帧 400 个信息比特、12×67 块交织、max-log、集合分割 8-PSK。4 次迭代相对 1 次，信息比特 BER 和 BLER 的 Clopper–Pearson 区间（``\alpha = 10^{-4}``）互不重叠。同一条种子下，理想 CSI 的逐符号瑞利在 8 dB、40 帧，也分开。随机数是 xorshift，不是 Julia 全局 `randn`。不宣称逼近容量。Gray 标签不拿来做这条增益曲线。
+
 ## 0.8.5
 
 平坦 Clarke/Jakes 时间相关瑞利，以及逐符号独立的 Nakagami-m。不是 Jakes 1974 的正弦和，不是频率选择性抽头，没有接到 OFDM、MIMO 或 MCS / HARQ 上。
