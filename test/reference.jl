@@ -13,6 +13,8 @@
 # Coherent BPSK in flat Rice, perfect CSI: Craig integral of the Rician MGF,
 #   Proakis and Salehi, 5th ed., §13.3. K is linear.
 # Rayleigh MRC, coherent BPSK, L i.i.d. branches: Proakis and Salehi, 5th ed., §13.4.
+# Nakagami-m coherent BPSK, perfect CSI: Craig integral of the Gamma MGF.
+#   Integer m equals MRC with L = m and per-branch Eb/N0 = γb/m.
 # Hard-decision union bound: Proakis and Salehi, 5th ed., §8.2; Lin and Costello,
 #   Error Control Coding, 2nd ed., §12.3. c_d comes from Coding.distance_spectrum.
 # Soft-decision pairwise error on antipodal AWGN: Proakis and Salehi, 5th ed., §8.2,
@@ -225,6 +227,26 @@ function ber_bpsk_mrc_rayleigh(L::Integer, γb::Real)
         s += float(binomial(L - 1 + k, k)) * β^k
     end
     return α^L * s
+end
+
+"""Coherent BPSK BER in i.i.d. Nakagami-m fading, perfect CSI.
+
+`m ≥ 1/2` and `γb` is the average Eb/N0. Instantaneous SNR is Gamma(shape = m, scale = γb/m), with Ω = E[|h|²] = 1. Craig form of `Q` against that MGF. `m = 1` is Rayleigh. Positive integer `m` equals `ber_bpsk_mrc_rayleigh(m, γb/m)`. `m = Inf` is AWGN.
+"""
+function ber_bpsk_nakagami(m::Real, γb::Real)
+    m = float(m)
+    γb = float(γb)
+    (m >= 0.5 && γb >= 0) || throw(ArgumentError("m must be ≥ 1/2 and γb must be ≥ 0"))
+    γb == 0 && return 0.5
+    isinf(γb) && return 0.0
+    isinf(m) && return ber_bpsk_awgn(γb)
+    integrand(θ) = begin
+        s2 = sin(θ)^2
+        den = m * s2 + γb
+        den == 0 && return 0.0
+        return ((m * s2) / den)^m
+    end
+    return _simpson(integrand, 0.0, π / 2, 2048) / π
 end
 
 # SpecialFunctions 2.9 returns `(x, 1 - x)` from `beta_inc_inv`; earlier 2.x releases
