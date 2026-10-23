@@ -1,11 +1,11 @@
 """
     CommToolkit
 
-Baseband communication-link simulations: Gray PSK/QAM (including ``M``-PSK) with hard decisions and AWGN bit LLRs, DBPSK/DQPSK differential detection, AWGN, symbol-wise flat Rayleigh and Rice, block-constant Rayleigh, ideal-CSI receive MRC, a deterministic single-carrier FIR, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, and BCJR, puncturing of that mother code to nominal rates 2/3 and 3/4, a rectangular block interleaver, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, a teaching CRC / MCS / Chase-HARQ loop, linear ZF/MMSE equalisation, trained symbol-spaced LMS, a finite-block ZF/MMSE decision-feedback equalizer, a textbook CP-OFDM chain, small MIMO detectors, SVD water-filling, and Alamouti coding, an additive LFSR scrambler, raised-cosine pulses, a matched filter, and symbol-rate downsampling.
+Baseband communication-link simulations: Gray PSK/QAM (including ``M``-PSK) with hard decisions and AWGN bit LLRs, DBPSK/DQPSK differential detection, AWGN, symbol-wise flat Rayleigh and Rice, block-constant Rayleigh, ideal-CSI receive MRC, a deterministic single-carrier FIR, a terminated ``K = 3`` convolutional code with hard-decision Viterbi, soft-input Viterbi, BCJR, and SOVA, puncturing of that mother code to nominal rates 2/3 and 3/4, a short parallel-concatenated turbo code on the recursive systematic form of those generators, syndrome decoding of the Hamming ``[7,4]`` code, a binary BCH (15, 7) decoder over GF(16), a rectangular block interleaver, short regular LDPC codes with systematic encoding and flooding sum-product / min-sum decoding, a teaching CRC / MCS / Chase-HARQ loop, linear ZF/MMSE equalisation, trained symbol-spaced LMS, a finite-block ZF/MMSE decision-feedback equalizer, a textbook CP-OFDM chain, small MIMO detectors, SVD water-filling, and Alamouti coding, an additive LFSR scrambler, raised-cosine pulses, a matched filter, and symbol-rate downsampling.
 
 The public names are re-exported from the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, `Scrambling`, and `Metrics`. Calling `using CommToolkit` does not load Plots; constellation, eye, and pulse figures are provided by the package extension `CommToolkitPlotsExt` after `using Plots`.
 
-This package is a simulation library for checking algorithms against textbook formulas. It does not implement 3GPP NR, LTE, or an O-RAN fronthaul, and it is not a production physical-layer stack. The LDPC codes are short teaching constructions, not NR base graphs. The MCS table and HARQ loop are a link-level teaching reference, not an NR scheduler. Convolutional puncturing is the classical periodic mask on the ``K = 3`` mother code, not NR rate matching. Block fading holds one coefficient fixed inside a block; it is not a Jakes model. The FIR is a tap vector supplied by the caller, not a fading process. The matched filter does not estimate timing or carrier phase. LMS adapts on a training sequence and then freezes; it is not blind and it is not RLS. The block DFE feeds back sliced decisions on the same convolution matrix as the linear equalizers, and a wrong decision can propagate. `evm` is the RMS error-vector magnitude of a received block against the caller's reference symbols, in percent or decibels, with no gain or phase fit. The scrambler XORs a block with an LFSR sequence and restarts from the same seed to undo it; it is not a self-synchronizing scrambler, not a Gold code, and it is not wired into the MCS loop. `svd_waterfill` puts a single total-power water-fill on the singular modes; `svd_precoder` still returns the unweighted right singular vectors.
+This package is a simulation library for checking algorithms against textbook formulas. It does not implement 3GPP NR, LTE, or an O-RAN fronthaul, and it is not a production physical-layer stack. The LDPC codes are short teaching constructions, not NR base graphs. The turbo code is a short teaching construction: two memory-2 recursive systematic encoders, a rectangular or stride interleaver, at most 1024 information bits, and at most 32 log-BCJR iterations. It is not a 3GPP turbo code. The BCH decoder is only the binary length-15, dimension-7, designed-distance-5 code, not a Reed–Solomon library and not a general BCH constructor. Hamming hard decisions are syndrome decoding of the ``[7,4]`` code; the LDPC fixture on the same parity-check matrix is not that decoder. The MCS table and HARQ loop are a link-level teaching reference, not an NR scheduler. Convolutional puncturing is the classical periodic mask on the ``K = 3`` mother code, not NR rate matching. Block fading holds one coefficient fixed inside a block; it is not a Jakes model. The FIR is a tap vector supplied by the caller, not a fading process. The matched filter does not estimate timing or carrier phase. LMS adapts on a training sequence and then freezes; it is not blind and it is not RLS. The block DFE feeds back sliced decisions on the same convolution matrix as the linear equalizers, and a wrong decision can propagate. `evm` is the RMS error-vector magnitude of a received block against the caller's reference symbols, in percent or decibels, with no gain or phase fit. The scrambler XORs a block with an LFSR sequence and restarts from the same seed to undo it; it is not a self-synchronizing scrambler, not a Gold code, and it is not wired into the MCS loop. `svd_waterfill` puts a single total-power water-fill on the singular modes; `svd_precoder` still returns the unweighted right singular vectors. SOVA and the turbo decoder are not wired into the MCS table, and there is no BICM-ID loop.
 """
 module CommToolkit
 
@@ -30,8 +30,11 @@ using .Channel: awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel,
     rice_fading, rice_channel, mrc, mrc_channel,
     apply_fir, fir_channel
 using .Pulse: matched_filter, downsample_symbols
-using .Coding: conv_encode, viterbi_decode, bcjr_decode, distance_spectrum,
+using .Coding: conv_encode, viterbi_decode, bcjr_decode, sova_decode, distance_spectrum,
     puncture_mask, puncture, depuncture,
+    turbo_interleaver, turbo_encode, turbo_decode,
+    GF2m, gf_add, gf_mul, gf_div, gf_inv, gf_pow,
+    hamming74_encode, hamming74_decode, bch157_encode, bch157_decode,
     LDPCCode, LDPCResult,
     gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H,
     ldpc_encode, ldpc_decode, ldpc_decode_details, ldpc_syndrome,
@@ -63,8 +66,11 @@ export
     rice_fading, rice_channel, mrc, mrc_channel,
     apply_fir, fir_channel,
     matched_filter, downsample_symbols,
-    conv_encode, viterbi_decode, bcjr_decode, distance_spectrum,
+    conv_encode, viterbi_decode, bcjr_decode, sova_decode, distance_spectrum,
     puncture_mask, puncture, depuncture,
+    turbo_interleaver, turbo_encode, turbo_decode,
+    GF2m, gf_add, gf_mul, gf_div, gf_inv, gf_pow,
+    hamming74_encode, hamming74_decode, bch157_encode, bch157_decode,
     block_interleave, block_deinterleave,
     LDPCCode, LDPCResult,
     gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H,
