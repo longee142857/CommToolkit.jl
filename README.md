@@ -1,6 +1,6 @@
 # CommToolkit.jl
 
-基带通信链路仿真库（v0.7.1），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
+基带通信链路仿真库（v0.8.0），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
 
 本包**不是** 3GPP NR / LTE 物理层，**不是** O-RAN 前传实现，也**不是**生产级协议栈。OFDM 是教科书循环前缀模型，没有资源栅格、DMRS 或空口时隙结构。LDPC 是短码教学 / 参考实现，不是 NR BG1/BG2。MCS 表、CRC 和 Chase 合并是链路级教学闭环，不是 NR CQI/MCS 表，也不是 HARQ 实体或调度器。卷积删余是 ``K = 3`` 母码上的周期图案，不是 NR 速率匹配。块衰落在一块内系数恒定，不是 Jakes 模型。
 
@@ -15,9 +15,10 @@
 - **链路**（`Link`）：CRC-16（CCITT 多项式 ``x^{16}+x^{12}+x^5+1``，系统码，初值 0）、五档教学 MCS、Chase 合并（比特 LLR 相加，有限次重传）和按 ``E_s/N_0`` 切换的 MCS。仿真信噪比是 ``E_s/N_0``，``E_s = 1``，``\sigma^2 = N_0/2``，与 `awgn` / `demodulate_soft` 相同。返回 BLER、BER、吞吐（送达净荷比特 / 信道符号，含重传）和频谱效率。没有速率匹配、增量冗余、多进程 HARQ、调度或功率控制。
 - **均衡**（`Equalization`）：频率选择性信道上的线性块 ZF / MMSE。无噪声时反演 `apply_fir` 的全长卷积。同一条卷积矩阵上的有限长块 DFE（`dfe_equalizer`，`noise_var = 0` 为 ZF，正的噪声方差为 MMSE；`zf_dfe` / `mmse_dfe` 做最近邻反馈）。符号率 LMS（`lms_equalize`）：训练序列监督，步长和抽头数由调用者给定，可返回抽头轨迹；训练段之后抽头冻结。不是 RLS，不是盲均衡。
 - **OFDM**（`OFDM`）：循环前缀 OFDM 收发、抽头延迟线、已知 CSI / LS / 逐导频收缩后线性插值、van de Beek 符号定时与小数倍频偏。
-- **MIMO**（`MIMO`）：i.i.d. 瑞利信道，ML、ZF、MMSE、按行范数排序的 SIC，ZF 与 SVD 预编码，Alamouti ``2\times1`` 与 ``2\times2``。
+- **MIMO**（`MIMO`）：i.i.d. 瑞利信道，ML、ZF、MMSE、按行范数排序的 SIC，ZF 与 SVD 预编码，SVD 上的总功率注水（`waterfill` / `svd_waterfill`），Alamouti ``2\times1`` 与 ``2\times2``。`svd_precoder` 本身仍然不分配功率。
+- **扰码**（`Scrambling`）：加性 LFSR。`scramble` 与 `descramble` 使用同一条从种子重起的序列。`prbs_polynomial` 给出次数 7、9、11、15、20、23、29、31 的经典三项式。不是自同步扰码，不是 Gold 码，没有接到链路闭环上。
 - **脉冲**（`Visualization`、`Pulse`）：升余弦与根升余弦，`pulse_shape`。接收侧 `matched_filter` 用发射脉冲的共轭反转做全长卷积，`downsample_symbols` 按每符号样本数抽一个相位。星座图、眼图、脉冲频谱由包扩展 `CommToolkitPlotsExt` 提供，只有 `using Plots` 之后才加载。
-- **指标**（`Metrics`）：误码率、符号错误率、按块计的帧错误率、dB 与线性信噪比换算。
+- **指标**（`Metrics`）：误码率、符号错误率、按块计的帧错误率、RMS 误差矢量幅度（默认百分数，也可 dB 或线性比）、dB 与线性信噪比换算。
 
 `CommToolkit.modulation` 根据 `OFDMParams` 选择 QPSK 或 QAM，不在 `export` 列表里。
 
@@ -84,6 +85,7 @@ src/link.jl           Link：CRC-16、教学 MCS、Chase 合并、自适应选�
 src/equalization.jl   Equalization
 src/ofdm.jl           OFDM
 src/mimo.jl           MIMO
+src/scrambling.jl     Scrambling：加性 LFSR
 src/visualization.jl  Visualization（作图函数在未加载 Plots 时抛错）
 src/metrics.jl        Metrics
 ext/CommToolkitPlotsExt.jl
@@ -114,5 +116,7 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 - FIR 抽头是确定性的，不是随机抽头过程，也不是 Jakes 谱，并且没有接到 OFDM 的 `TDLChannel` 上。`fir_channel` 的噪声按调用者给出的 ``E_b`` 标定（位置参数假定 ``E_s = 1``），不按滤波后的样本功率重标。返回的 `noise_var` 是加在**这条卷积结果**上的噪声方差：实序列为 ``N_0/2``，复序列为 ``N_0``。它只在均衡器的输入就是这个 `rx` 时交给 `mmse_equalize` 或 `mmse_dfe`；匹配滤波之后噪声被着色，这个标量不再是抽样点上的方差。`+Inf` 不加噪声，也不消耗全局随机数。ZF / MMSE 要的是抽样之后的符号率冲激响应。中间有脉冲成形时，它不等于样本率上的 FIR 抽头，除非该脉冲在抽样相位上是冲激。
 - LMS 是符号率、监督训练的复基带算法；实信号上共轭退化为恒等。输出是 ``w^{\mathsf{T}} u``（最新样本在 ``u`` 的第一项），更新是 ``w \leftarrow w + \mu e u^*``。步长由调用者选择。稳定范围大约是 ``0 < \mu < 2/\lambda_{\max}``，函数不估计这个上界，也不做归一化 LMS。抽头初值默认是 0。`delay` 是期望符号相对最新接收样本的滞后；能量不在第一抽头上时，`delay = 0` 对不齐。训练序列用完之后抽头冻结，没有判决引导，也没有盲模式。返回的训练段输出用的是该步更新前的抽头，不是用最终抽头把整块重滤一遍。稳态误调不作为返回值，也不对照 Widrow / Proakis §10.1-4 的超额 MSE 公式。无噪声且抽头和时延足够时，误差可以收到舍入；有噪声时更大的稳定步长留下更大的超额误差。不是 RLS，不是 Kalman，不是分数间隔均衡。
 - 块 DFE 和 `zf_equalizer` / `mmse_equalizer` 用同一条卷积矩阵。前馈来自列反转后的 QR；MMSE 把 ``\sqrt{\sigma^2} I`` 接在矩阵下面。反馈是上三角因子里严格在游标之后的项，检测顺序从第一个符号到最后一个，不按 V-BLAST 重排。每个符号一行，因为块是有限长的；不是时不变的短抽头 streaming DFE。反馈送进的是 `alphabet` 上的最近邻，平局取更靠前的点。`training` 覆盖到的符号改用已知符号，这一段不经过切片，整块都给训练就是理想反馈。没被训练盖住的位置一旦判错，错误乘上该行反馈抽头加进后面的软输出。小抽头不一定翻得过判决边界，大抽头可以连着翻一段；函数不限制这个突发有多长，也没有 Tomlinson–Harashima 预编码。无噪声且每个反馈判决都正确时，ZF-DFE 把非全零 FIR 恢复到线性代数舍入。MMSE 软输出带有和 `mmse_equalize` 相同的偏差，不另做去偏。`noise_var` 必须有限。
-- ML 检测是穷举。SVD 预编码不做注水。ZF 预编码矩阵未做功率归一化。
+- EVM 是调用者给出的参考符号和接收符号之间的 RMS 幅度比。默认百分数：``100\sqrt{\sum|e|^2/\sum|s|^2}``。dB 是 ``20\log_{10}`` 这个比，10% 为 ``-20\,\mathrm{dB}``。不做幅度、相位或直流拟合，也不换成星座模板功率。
+- 扰码是加性 LFSR：同一多项式、同一种子再异或一次即解扰。每次调用从种子重起，没有跨块保留的相位。次数不超过 62。经典多项式是三项式；次数 7 是 ``x^7+x^6+1``，不是 802.11 的 ``x^7+x^4+1``。次数 9 及以上取 ITU-T O.150 的连接多项式；次数 20 是 ``x^{20}+x^3+1``，不是 ``x^{20}+x^{17}+1``。序列不按 O.150 取反，也不塞入额外的 1。不是自同步乘性扰码，不是 Gold 码，没有接到 MCS / HARQ。
+- ML 检测是穷举。`svd_precoder` 只返回右奇异向量，不分配功率。`waterfill` / `svd_waterfill` 是单用户总功率注水（Tse 与 Viswanath §7.1.1）：低信噪比集中到最强特征模式，高信噪比在正奇异值上接近均匀。`noise_var` 是 ``\mathbb{E}[|n_i|^2]``，不是 ``N_0/2``。功率为 0 的模式保留成零列。不是多用户迭代注水，没有速率约束。ZF 预编码矩阵未做功率归一化。
 - 导频和抽头相位用固定线性同余发生器，不走全局随机数流。

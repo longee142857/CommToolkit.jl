@@ -14,6 +14,7 @@ makedocs(;
         CommToolkit.OFDM,
         CommToolkit.MIMO,
         CommToolkit.Visualization,
+        CommToolkit.Scrambling,
         CommToolkit.Metrics,
     ],
     sitename = "CommToolkit.jl",
@@ -21,6 +22,9 @@ makedocs(;
     format = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://longee142857.github.io/CommToolkit.jl/",
+        # One API-reference page. The default 200 KiB limit is crossed once
+        # EVM, the LFSR, and water-filling are documented alongside the rest.
+        size_threshold = 300 * 1024,
     ),
     pages = [
         "API Reference" => "index.md",
