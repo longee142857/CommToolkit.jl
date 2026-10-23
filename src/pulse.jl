@@ -1,7 +1,7 @@
 """
     Pulse
 
-Matched filter for a transmit pulse, and symbol-rate sampling at a caller-chosen phase. Not a timing-recovery loop: there is no Gardner detector, no interpolator, and no carrier loop.
+Matched filter for a transmit pulse, and symbol-rate sampling at a caller-chosen phase. This module does not choose the sampling phase or the carrier. Gardner timing, a Costas loop, and Schmidl–Cox live in `Sync` and call these two functions; they do not change them.
 """
 module Pulse
 

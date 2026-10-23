@@ -4,7 +4,7 @@ API reference for the exported interface. This page is not a tutorial.
 
 The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE, it does not implement an O-RAN fronthaul, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The turbo code is a short memory-2 teaching construction, not a 3GPP turbo code. `bch157_encode` is the binary BCH code of length 15 and dimension 7, not a Reed–Solomon code. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity. `PSK` is coherent Gray ``M``-PSK. `DBPSK` and `DQPSK` are two-symbol differential detectors, not ``\pi/4``-DQPSK. `rice_channel` takes a linear Rice factor. `mrc` is ideal-CSI receive combining, not a MIMO detector.
 
-Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, `Scrambling`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it.
+Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, `Scrambling`, `Sync`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it. Gardner, Costas, and Schmidl–Cox in `Sync` are teaching loops with a stated capture range. They do not replace `ofdm_sync`.
 
 ```@docs
 CommToolkit
@@ -193,7 +193,7 @@ alamouti_decode_2x2
 
 ## Pulses and figures
 
-`pulse_shape` truncates the transmit convolution. `matched_filter` keeps the full matched-filter tail and does not choose the sampling phase; pass that phase as `offset` to `downsample_symbols`. These functions do not estimate timing.
+`pulse_shape` truncates the transmit convolution. `matched_filter` keeps the full matched-filter tail and does not choose the sampling phase; pass that phase as `offset` to `downsample_symbols`. The sampling phase and the carrier are estimated in `Sync`, not here.
 
 ```@docs
 raised_cosine
@@ -205,4 +205,23 @@ downsample_symbols
 plot_constellation
 plot_eye_diagram
 plot_pulse_response
+```
+
+## Synchronisation
+
+Teaching Gardner timing, a BPSK/QPSK Costas loop, and a Schmidl–Cox preamble. Not a production synchroniser. `ofdm_sync` is unchanged: van de Beek, fractional CFO in ``(-1/2, 1/2)``, no integer CFO, buffer not shifted by the timing index.
+
+```@docs
+CommToolkit.Sync
+fractional_delay
+gardner_ted
+gardner_loop
+gardner_open_loop
+single_carrier_timing
+costas_detector
+costas_loop
+schmidl_preamble
+schmidl_cox
+integer_cfo_estimate
+schmidl_sync
 ```

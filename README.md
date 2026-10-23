@@ -1,6 +1,6 @@
 # CommToolkit.jl
 
-基带通信链路仿真库（v0.8.3），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
+基带通信链路仿真库（v0.8.4），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
 
 本包**不是** 3GPP NR / LTE 物理层，**不是** O-RAN 前传实现，也**不是**生产级协议栈。OFDM 是教科书循环前缀模型，没有资源栅格、DMRS 或空口时隙结构。LDPC 是短码教学 / 参考实现，不是 NR BG1/BG2。Turbo 是记忆 2 的短帧教学码，不是 3GPP Turbo。BCH 只有二进制 (15, 7) 这一种，不是 Reed–Solomon。MCS 表、CRC 和 Chase 合并是链路级教学闭环，不是 NR CQI/MCS 表，也不是 HARQ 实体或调度器。卷积删余是 ``K = 3`` 母码上的周期图案，不是 NR 速率匹配。块衰落在一块内系数恒定，不是 Jakes 模型。
 
@@ -14,10 +14,11 @@
 - **交织**（`Interleaving`）：矩形块交织，按行写入、按列读出，对比特、符号和 LLR 是同一种置换。
 - **链路**（`Link`）：CRC-16（CCITT 多项式 ``x^{16}+x^{12}+x^5+1``，系统码，初值 0）、五档教学 MCS、Chase 合并（比特 LLR 相加，有限次重传）和按 ``E_s/N_0`` 切换的 MCS。仿真信噪比是 ``E_s/N_0``，``E_s = 1``，``\sigma^2 = N_0/2``，与 `awgn` / `demodulate_soft` 相同。返回 BLER、BER、吞吐（送达净荷比特 / 信道符号，含重传）和频谱效率。没有速率匹配、增量冗余、多进程 HARQ、调度或功率控制。
 - **均衡**（`Equalization`）：频率选择性信道上的线性块 ZF / MMSE。无噪声时反演 `apply_fir` 的全长卷积。同一条卷积矩阵上的有限长块 DFE（`dfe_equalizer`，`noise_var = 0` 为 ZF，正的噪声方差为 MMSE；`zf_dfe` / `mmse_dfe` 做最近邻反馈）。符号率 LMS（`lms_equalize`）：训练序列监督，步长和抽头数由调用者给定，可返回抽头轨迹；训练段之后抽头冻结。不是 RLS，不是盲均衡。
-- **OFDM**（`OFDM`）：循环前缀 OFDM 收发、抽头延迟线、已知 CSI / LS / 逐导频收缩后线性插值、van de Beek 符号定时与小数倍频偏。
+- **OFDM**（`OFDM`）：循环前缀 OFDM 收发、抽头延迟线、已知 CSI / LS / 逐导频收缩后线性插值、van de Beek 符号定时与小数倍频偏。van de Beek 的捕获范围是 ``(-1/2, 1/2)`` 个子载波间隔，不估计整数倍频偏。Schmidl–Cox 前导在 `Sync` 里，不改 `ofdm_sync`。
 - **MIMO**（`MIMO`）：i.i.d. 瑞利信道，ML、ZF、MMSE、按行范数排序的 SIC，ZF 与 SVD 预编码，SVD 上的总功率注水（`waterfill` / `svd_waterfill`），Alamouti ``2\times1`` 与 ``2\times2``。`svd_precoder` 本身仍然不分配功率。
 - **扰码**（`Scrambling`）：加性 LFSR。`scramble` 与 `descramble` 使用同一条从种子重起的序列。`prbs_polynomial` 给出次数 7、9、11、15、20、23、29、31 的经典三项式。不是自同步扰码，不是 Gold 码，没有接到链路闭环上。
 - **脉冲**（`Visualization`、`Pulse`）：升余弦与根升余弦，`pulse_shape`。接收侧 `matched_filter` 用发射脉冲的共轭反转做全长卷积，`downsample_symbols` 按每符号样本数抽一个相位。星座图、眼图、脉冲频谱由包扩展 `CommToolkitPlotsExt` 提供，只有 `using Plots` 之后才加载。
+- **同步**（`Sync`）：Gardner 定时误差（偶数 `sps`）、线性内插的一阶环和开环过零，以及 `pulse_shape` → `matched_filter` → 分数延迟 → `downsample_symbols` 的胶水。Costas 环只覆盖 `BPSK()` 和 `QPSK()`。Schmidl–Cox 重复半符号前导做帧检测和 ``(-1, 1)`` 内的小数 CFO，偶数倍整数 CFO 另搜。不是生产级同步。
 - **指标**（`Metrics`）：误码率、符号错误率、按块计的帧错误率、RMS 误差矢量幅度（默认百分数，也可 dB 或线性比）、dB 与线性信噪比换算。
 
 `CommToolkit.modulation` 根据 `OFDMParams` 选择 QPSK 或 QAM，不在 `export` 列表里。
@@ -60,6 +61,8 @@ ber(bits, demodulate(rx, BPSK()))
 
 `test/lms_dfe.jl` 把符号率 `apply_fir` / `fir_channel` 接到 LMS 和块 DFE。无噪声时 LMS 的抽头朝这条回归量的批最小二乘解走，末段误差低于开头；同一条确定性噪声记录上，更大的稳定步长留下更大的末段均方误差，不对照 Widrow 超额 MSE 闭式。ZF-DFE 在判决正确时把全列秩 FIR 恢复到舍入误差；第一个反馈符号被换成错误值时，后面的硬判决可以成串翻掉。
 
+`test/sync.jl` 不跑误码率曲线。Gardner 在根升余弦上核对 S 曲线的符号和开环过零（相对真抽样相位的圆周距离），一阶环在偏晚和偏早两种初值下把抽样时刻拉向自相关峰。Costas 在小相偏和小频偏下核对鉴相器符号、相位和频率状态的移动方向，以及锁定后的 QPSK 硬判决。Schmidl–Cox 在无噪声前导上核对两半相等、小数 CFO、偶数倍整数 CFO，以及 ``\varepsilon = 0.7`` 时 van de Beek 仍报成接近 ``-0.3``。可复现的打印在 `demos/sync_timing.jl`，不依赖 Plots。
+
 LDPC 使用同一套 `awgn` / `demodulate_soft` 标定：BPSK 符号能量 ``E_s = 1``，信息比特能量 ``E_b = n/k``，``\sigma^2 = N_0/2``。`test/ldpc.jl` 在 Fan 阵列码 `array_ldpc(3, 6, 11)`（``n = 66``，``k = 35``，无 4 环）上，于 2.5 dB 与 3.5 dB、各 1000 帧、种子 `0x0c0de1162`，对归一化 min-sum 与 sum-product 检查信息比特 BER 和 BLER 的 Clopper–Pearson 上界（``\alpha = 10^{-4}``）低于未编码 BPSK。小码与 ``[7,4]`` Hamming 码做穷举对照（Lin 与 Costello §3.2）；树上的 sum-product 与逐比特 MAP 一致。Hamming 校验图含 4 环，不是最大似然译码。
 
 链路测试在 `test/link.jl`。CRC-16 对照 CRC-16/XMODEM 的 `"123456789" → 0x31C3`，并检查单比特翻转和 ``g(x)`` 自身作为漏检图样。无噪声时每一档 MCS 的吞吐等于该档频谱效率，Chase 不再重传。``E_s/N_0 = 5\,\mathrm{dB}`` 的 16-QAM 卷积码上，3 次 Chase 合并相对单次传输的 CRC 失败率区间（Clopper–Pearson，``\alpha = 10^{-4}``，100 个块）互不重叠，合并后的吞吐更高。同一 ``\alpha`` 下，5 dB 的门限自适应（选中 QPSK 阵列 LDPC）吞吐下界高于固定 BPSK，也高于固定 64-QAM；16 dB 的自适应（选中 64-QAM）下界高于固定 BPSK。门限本身来自 Julia 1.10.12、种子 `0x0c0de1162`、每点 80 块的固定 MCS 吞吐包络，见 `teaching_amc_thresholds`。可复现的打印表在 `demos/link_mcs_harq.jl`，不依赖 Plots。
@@ -89,6 +92,7 @@ src/ofdm.jl           OFDM
 src/mimo.jl           MIMO
 src/scrambling.jl     Scrambling：加性 LFSR
 src/visualization.jl  Visualization（作图函数在未加载 Plots 时抛错）
+src/sync.jl           Sync：Gardner、Costas、Schmidl–Cox
 src/metrics.jl        Metrics
 ext/CommToolkitPlotsExt.jl
 test/                 闭式对照与单元测试
@@ -115,8 +119,11 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 - LDPC 只覆盖短的教学构造。Gallager 的列置换由本实现的 SplitMix64 规则确定，不是 Gallager 1962 系综里的某一个唯一矩阵，也不保证围长；没有 PEG，没有非正则优化，也没有按密度进化重估 ``\alpha``、``\beta``（固定为 0.75 与 0.15）。编码是构造时的一次稠密高斯消元，边长不超过 4096，不是 Richardson–Urbanke 的线性时间编码器。译码是泛洪调度，不是分层调度。有环时 sum-product 不等于 MAP。``[7,4]`` Hamming 码含 4 环，全零字上第 7 位（列重 3）的单比特翻转会收敛到另一个码字。信道硬判决已经是码字且早停打开时，`posterior` 就是信道 LLR，迭代次数为 0。冗余校验行留在 Tanner 图里。没有 NR BG1/BG2、LDPC 速率匹配、LDPC 打孔、缩短，也没有把解调器外信息再送回译码器。CRC 和 Chase 合并在 `Link` 里，不在 LDPC 译码器内部。
 - 链路闭环是单链路 AWGN。MCS 表只有五档，频谱效率把 16 位 CRC 和卷积尾比特算作开销，所以低于母码率乘 ``\log_2 M``。门限是这条表、这个块长上的教学开关，不是 NR CQI，也不会随信道重新估计。3 dB 和 11 dB 附近两条吞吐曲线靠得近，换随机数流可能把交点挪约 1 dB。Chase 合并重复同一编码块；闭环里没有增量冗余，卷积删余也没有接到 Chase 上。重传次数有限，失败的块丢弃。外环只移动一个 SNR 偏移，不控制功率，也没有 HARQ 进程号或时序。二阶矩 ``E_s/N_0`` 估计在短块上有偏。CRC-16 检不出 ``g(x)`` 的倍式。没有多用户，也没有调度器。
 - 软解调假定星座等先验、符号独立。LLR 是信道比特边际，没有把译码器外信息反馈进解调器。`approx = :maxlog` 只保留每个比特子集里的最近星座点。衰落系数要由调用者先补偿；本函数不读取 CSI。
-- OFDM 的 “MMSE” 是逐导频幅度收缩后再做线性插值，不是 Edfors 的 LMMSE。多径上线性插值有与信噪比无关的误差平底。`ofdm_sync` 校正频偏，但不按定时估计平移缓存。
-- `pulse_shape` 仍把卷积截成 `length(symbols) * sps`，滤波器尾部被丢掉。`matched_filter` 是 `conj.(reverse(taps))` 的全长线性卷积：不截断、不搜索定时、不做分数延迟内插。`downsample_symbols` 的 `offset` 是调用者给出的前导样本数（抽样相位），不按 `sps` 取模，也不是 Gardner 环。根升余弦在符号点上只是截断后的近似奈奎斯特；突发末尾大约半个滤波器跨度的符号缺少被丢掉的尾部。没有载波恢复，没有 Costas 环。抽样相位要对上自相关峰值时，`offset = length(taps) - 1`（符号 1 放在上采样后的下标 1，且 `length(symbols) * sps >= length(taps)`）。
+- OFDM 的 “MMSE” 是逐导频幅度收缩后再做线性插值，不是 Edfors 的 LMMSE。多径上线性插值有与信噪比无关的误差平底。`ofdm_sync` 校正频偏，但不按定时估计平移缓存。`cfo_estimate` 只在 ``(-1/2, 1/2)`` 个子载波间隔内无模糊：``0.7`` 会报成接近 ``-0.3``，函数不估计整数倍。这是 van de Beek 的循环前缀相关，0.8.4 没有改它的公式或返回值。
+- `pulse_shape` 仍把卷积截成 `length(symbols) * sps`，滤波器尾部被丢掉。`matched_filter` 是 `conj.(reverse(taps))` 的全长线性卷积：不截断、不搜索定时、不做分数延迟内插。`downsample_symbols` 的 `offset` 是调用者给出的前导样本数（抽样相位），不按 `sps` 取模。根升余弦在符号点上只是截断后的近似奈奎斯特；突发末尾大约半个滤波器跨度的符号缺少被丢掉的尾部。抽样相位要对上自相关峰值时，`offset = length(taps) - 1`（符号 1 放在上采样后的下标 1，且 `length(symbols) * sps >= length(taps)`）。`Pulse` 自己仍然不估计定时或载波。
+- 同步不是生产级。Gardner 要求偶数 `sps ≥ 2`，中点必须落在样点上；奇数过采样直接拒绝，而不是内插到半符号。平均误差在采样偏晚时为正。半个符号附近还有一个负斜率的零点，开环只留正斜率的那个。没有符号钟频率状态，捕获的是一个符号周期里的抽样相位，不是整数个符号的延迟；`single_carrier_timing` 的 `symbol_index` 用的是 `length(taps)`。连续相同的符号使 `late - early ≈ 0`，开环会因为找不到过零而报错。分数延迟是两点线性内插，不是带限 Farrow。环路增益按单位能量根升余弦上的 BPSK 来试，QPSK 的 S 曲线更平，同一个 `alpha` 收得更慢。
+- Costas 只定义了 `BPSK()` 和 `QPSK()`。`PSK(4)` 在坐标轴上，鉴相器会拒绝。BPSK 对 ``\pi`` 旋转不敏感（比特全翻，误差仍可以是 0），QPSK 对 ``\pi/2`` 不敏感。线性区大约是 BPSK 的 ``|\theta| < \pi/2``、QPSK 的 ``|\theta| < \pi/4``。默认 ``\alpha``、``\beta`` 用来锁大约 ``10^{-2}`` 弧度/符号的频偏；更大的频偏不在这组增益的捕获范围里。没有锁定检测，没有 AGC，也不跟踪定时。输入是每符号一个样点。
+- Schmidl–Cox 必须用 `schmidl_preamble` 那种两半相同的前导，`ofdm_tx` 不会加。小数 CFO 的无模糊范围是 ``(-1, 1)``，再加 ``2z`` 的偶数倍整数它看不见。整数搜索默认只到 ``|2z| \le 8``，而且是平坦信道上的相干相关；FFT 窗起点不对、或者小数部分还没消掉，峰值就会偏。循环前缀把定时度量变成平台。无噪声时最早的最大值就是前导的第一个样点，`schmidl_sync` 把 FFT 窗放在 `d + n_cp`。噪声若把最大值挪到平台后部，这个窗会滑出符号。代码没有做平台平均。`schmidl_sync` 和 `ofdm_sync` 一样不按定时估计裁剪波形。
 - FIR 抽头是确定性的，不是随机抽头过程，也不是 Jakes 谱，并且没有接到 OFDM 的 `TDLChannel` 上。`fir_channel` 的噪声按调用者给出的 ``E_b`` 标定（位置参数假定 ``E_s = 1``），不按滤波后的样本功率重标。返回的 `noise_var` 是加在**这条卷积结果**上的噪声方差：实序列为 ``N_0/2``，复序列为 ``N_0``。它只在均衡器的输入就是这个 `rx` 时交给 `mmse_equalize` 或 `mmse_dfe`；匹配滤波之后噪声被着色，这个标量不再是抽样点上的方差。`+Inf` 不加噪声，也不消耗全局随机数。ZF / MMSE 要的是抽样之后的符号率冲激响应。中间有脉冲成形时，它不等于样本率上的 FIR 抽头，除非该脉冲在抽样相位上是冲激。
 - LMS 是符号率、监督训练的复基带算法；实信号上共轭退化为恒等。输出是 ``w^{\mathsf{T}} u``（最新样本在 ``u`` 的第一项），更新是 ``w \leftarrow w + \mu e u^*``。步长由调用者选择。稳定范围大约是 ``0 < \mu < 2/\lambda_{\max}``，函数不估计这个上界，也不做归一化 LMS。抽头初值默认是 0。`delay` 是期望符号相对最新接收样本的滞后；能量不在第一抽头上时，`delay = 0` 对不齐。训练序列用完之后抽头冻结，没有判决引导，也没有盲模式。返回的训练段输出用的是该步更新前的抽头，不是用最终抽头把整块重滤一遍。稳态误调不作为返回值，也不对照 Widrow / Proakis §10.1-4 的超额 MSE 公式。无噪声且抽头和时延足够时，误差可以收到舍入；有噪声时更大的稳定步长留下更大的超额误差。不是 RLS，不是 Kalman，不是分数间隔均衡。
 - 块 DFE 和 `zf_equalizer` / `mmse_equalizer` 用同一条卷积矩阵。前馈来自列反转后的 QR；MMSE 把 ``\sqrt{\sigma^2} I`` 接在矩阵下面。反馈是上三角因子里严格在游标之后的项，检测顺序从第一个符号到最后一个，不按 V-BLAST 重排。每个符号一行，因为块是有限长的；不是时不变的短抽头 streaming DFE。反馈送进的是 `alphabet` 上的最近邻，平局取更靠前的点。`training` 覆盖到的符号改用已知符号，这一段不经过切片，整块都给训练就是理想反馈。没被训练盖住的位置一旦判错，错误乘上该行反馈抽头加进后面的软输出。小抽头不一定翻得过判决边界，大抽头可以连着翻一段；函数不限制这个突发有多长，也没有 Tomlinson–Harashima 预编码。无噪声且每个反馈判决都正确时，ZF-DFE 把非全零 FIR 恢复到线性代数舍入。MMSE 软输出带有和 `mmse_equalize` 相同的偏差，不另做去偏。`noise_var` 必须有限。

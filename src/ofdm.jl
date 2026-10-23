@@ -417,6 +417,8 @@ Carrier-frequency offset, in units of the subcarrier spacing, from the cyclic-pr
 ```
 
 The estimate is unambiguous for ``\varepsilon \in (-1/2, 1/2)``. `sto` is 1-based.
+
+This is the van de Beek cyclic-prefix estimator. It does not estimate an integer number of subcarrier spacings: an offset of ``0.7`` is reported near ``-0.3``. A repeated-half preamble estimator with fractional range ``(-1, 1)`` and a separate even-integer search lives in `Sync` (`schmidl_cox`, `integer_cfo_estimate`). Those functions do not call this one, and this function does not look for that preamble.
 """
 function cfo_estimate(rx_signal::AbstractVector{<:Complex}, params::OFDMParams;
                       sto::Int=sto_estimate(rx_signal, params))
@@ -454,6 +456,8 @@ Run [`sto_estimate`](@ref) and [`cfo_estimate`](@ref), then [`cfo_correct`](@ref
 
 # Returns
 The CFO-corrected waveform (still including any leading delay), the 1-based timing index, and the normalised CFO. The returned waveform is **not** shifted by `sto`; a caller that needs the FFT window to start at sample 1 has to discard `sto - 1` samples.
+
+The CFO half of this function is [`cfo_estimate`](@ref): capture ``(-1/2, 1/2)``, no integer offset. `Sync.schmidl_sync` is a different estimator that needs a repeated-half preamble and also returns an unshifted buffer. Calling `ofdm_sync` does not run that estimator, and `schmidl_sync` does not call `ofdm_sync`.
 """
 function ofdm_sync(rx_signal::AbstractVector{<:Complex}, params::OFDMParams;
                    search_range::Int=params.N_fft + params.N_cp)
