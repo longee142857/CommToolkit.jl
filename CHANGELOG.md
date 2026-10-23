@@ -1,5 +1,15 @@
 # 变更记录
 
+## 0.8.4
+
+单载波定时和载波的教学环，以及 OFDM 的 Schmidl–Cox 前导。不是生产级同步。没有接到 MCS / HARQ，没有改 van de Beek 的 `ofdm_sync`，也没有动 SOVA、Turbo、BCH、Jakes、NR 或 O-RAN。0.8.0 的 EVM、LFSR 扰码和 SVD 注水，以及 0.8.3 的 SOVA、短 Turbo 和 BCH(15,7) 保持原样。
+
+- Gardner：`gardner_ted` 要求偶数 `sps ≥ 2`，和 `pulse_shape` / `downsample_symbols` 用同一个每符号样本数。符号点是 1-based 下标 `phase, phase+sps, ...`，中点在当前符号点前 `sps÷2` 个样本。误差是 ``\Re(y_{\mathrm{mid}}^*(y_{\mathrm{late}}-y_{\mathrm{early}}))``。采样点偏晚（落在自相关峰之后）时平均误差为正，所以环路用 ``\mu \leftarrow \mu - \alpha e``。`gardner_loop` 是线性内插的一阶环，没有单独的符号钟频率状态。`gardner_open_loop` 在一个符号周期里找正斜率过零。整数个符号的延迟不由 Gardner 给出。`single_carrier_timing` 把 `pulse_shape`、`matched_filter`、分数延迟和 `downsample_symbols` 串起来，并用 `length(taps)` 算出输入符号 1 落在哪一个抽样点。
+- Costas：只接受 `BPSK()` 和 `QPSK()`。`QPSK()` 在 ``\pi/4``，不是轴上的 `PSK(4)`。小残余相位下鉴相器与相位同号。BPSK 的锁定周期是 ``\pi``，QPSK 是 ``\pi/2``。默认增益 ``\alpha = 0.06``、``\beta = 0.0015`` 只覆盖大约 ``10^{-2}`` 弧度/符号这一量级的频偏。没有锁定检测，没有 AGC，输入必须已经是每符号一个样点。
+- Schmidl–Cox：`schmidl_preamble` 在 0-based 偶数子载波上放确定性 ``\pm 1``，两半时域相同。`schmidl_cox` 的小数 CFO 在 ``(-1, 1)`` 个子载波间隔内无模糊，对再加上 ``2z`` 的偶数倍整数频偏不敏感。`integer_cfo_estimate` 在调用者给定的 ``z`` 范围内做已知前导的相干相关，默认 ``z_{\max} = 4``（即 ``|m| \le 8`` 的偶数）。它假定平坦信道，并且 FFT 窗已经落在无 ISI 的有用符号上。`schmidl_sync` 先消小数再搜整数，返回的波形不按 `d` 平移。`ofdm_tx` 不会插入这个前导。
+- 和 `ofdm_sync` 的关系：那三个函数（`sto_estimate`、`cfo_estimate`、`ofdm_sync`）的计算公式和返回值都没有改。它们仍是循环前缀相关，捕获范围 ``(-1/2, 1/2)``，不估计整数 CFO，也不按定时下标搬移缓存。Schmidl–Cox 是旁边的另一套估计器。循环前缀会使 Schmidl 度量变成平台；无噪声时取最早的最大值。代码不做 Schmidl 与 Cox 原文里的平台平均，所以噪声把峰值挪到平台末端时，`d + n_cp` 会偏出符号。
+- 版本：main 已是 0.8.3（SOVA、短 Turbo、BCH）。这一刀只加同步接口，已有函数的位置参数和返回值不变，记为 0.8.4。
+
 ## 0.8.3
 
 软输出 Viterbi、短帧 Turbo，以及 Hamming(7,4) / 二进制 BCH(15,7) 的硬判决。不是 3GPP Turbo，不是 Reed–Solomon，没有接到 MCS / HARQ 上，也没有 BICM-ID。
