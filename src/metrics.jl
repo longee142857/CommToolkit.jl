@@ -1,6 +1,6 @@
 module Metrics
 
-export ber, ser, fer, snr_db_to_linear
+export ber, ser, fer, evm, snr_db_to_linear
 
 @doc raw"""
     snr_db_to_linear(snr_db::Real) -> Float64
@@ -103,6 +103,58 @@ function fer(tx::AbstractVector, rx::AbstractVector, block_length::Integer)
         end
     end
     return bad / (n ÷ bl)
+end
+
+@doc raw"""
+    evm(reference, received; unit=:percent) -> Float64
+
+RMS error-vector magnitude of `received` against `reference`.
+
+```math
+\mathrm{EVM}_{\mathrm{rms}}
+  = \sqrt{ \frac{\sum_i |r_i - s_i|^2}{\sum_i |s_i|^2} }.
+```
+
+`reference` holds the ideal symbols ``s_i`` and `received` the observed symbols ``r_i``. One entry is one symbol. The two vectors must have the same nonzero length.
+
+# Units
+- `unit = :percent` (default): ``100 \cdot \mathrm{EVM}_{\mathrm{rms}}``. This is a percentage of the RMS reference amplitude, not a percentage of the reference power. An RMS ratio of ``0.1`` is `10.0`, i.e. 10%.
+- `unit = :db`: ``20 \log_{10}(\mathrm{EVM}_{\mathrm{rms}})``, which is the same number as ``10 \log_{10}\) of the error power over the reference power. 10% is ``-20``. A perfect match returns `-Inf`.
+- `unit = :linear`: the dimensionless ratio ``\mathrm{EVM}_{\mathrm{rms}}``.
+
+# Notes
+The sums are over the vectors as passed in. There is no constellation template, DC removal, gain fit, or phase rotation: a common phase offset is an error. Scaling both vectors by the same nonzero constant does not change the result. The ratio is undefined when the reference energy is zero, and when any symbol is non-finite.
+"""
+function evm(reference::AbstractVector{<:Number}, received::AbstractVector{<:Number};
+             unit::Symbol=:percent)
+    n = length(reference)
+    length(received) == n || throw(ArgumentError(
+        "symbol vectors must have the same length, got $n and $(length(received))",
+    ))
+    n > 0 || throw(ArgumentError("symbol vectors must be non-empty"))
+    unit === :percent || unit === :db || unit === :linear || throw(ArgumentError(
+        "unit must be :percent, :db, or :linear, got $(repr(unit))",
+    ))
+    err = 0.0
+    refp = 0.0
+    for (s, r) in zip(reference, received)
+        es = abs2(float(s))
+        er = abs2(float(r) - float(s))
+        if !isfinite(es) || !isfinite(er)
+            throw(ArgumentError("reference and received symbols must be finite"))
+        end
+        refp += es
+        err += er
+    end
+    refp > 0 || throw(ArgumentError("reference energy is zero; EVM is undefined"))
+    ratio = sqrt(err / refp)
+    if unit === :linear
+        return ratio
+    elseif unit === :percent
+        return 100 * ratio
+    else
+        return 20 * log10(ratio)
+    end
 end
 
 end # module Metrics

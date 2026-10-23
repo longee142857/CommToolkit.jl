@@ -4,7 +4,7 @@ using LinearAlgebra
 
 export mimo_channel, apply_mimo,
     ml_detect, zf_detect, mmse_detect, sic_detect,
-    zf_precoder, svd_precoder,
+    zf_precoder, svd_precoder, waterfill, svd_waterfill,
     alamouti_encode, alamouti_decode_2x1, alamouti_decode_2x2
 
 @doc raw"""
@@ -177,7 +177,7 @@ Right-singular-vector precoder of `H`.
 - `V`: `n_tx × r` matrix whose columns are the right singular vectors (`LinearAlgebra.svd(H).V`).
 - `S`: the singular values, largest first.
 
-With the thin SVD ``H = U \operatorname{diag}(S) V^{\mathrm{H}}``, the noiseless link `H * V` equals `U * Diagonal(S)` (Tse and Viswanath, 2005, §7.1). No water-filling powers are applied; `S` is returned so a caller can compute them.
+With the thin SVD ``H = U \operatorname{diag}(S) V^{\mathrm{H}}``, the noiseless link `H * V` equals `U * Diagonal(S)` (Tse and Viswanath, 2005, §7.1). No water-filling powers are applied. [`waterfill`](@ref) allocates a total power across `S`, and [`svd_waterfill`](@ref) folds that allocation into the precoder.
 
 # Notes
 Releases before 0.2 returned `Vᴴ` instead of `V`, because the third value of `svd`'s iterator was treated as `Vᵀ`. That matrix is not a precoder: it has the wrong shape whenever `n_tx ≠ rank`.
@@ -185,6 +185,118 @@ Releases before 0.2 returned `Vᴴ` instead of `V`, because the third value of `
 function svd_precoder(H::AbstractMatrix{<:Number})
     F = svd(ComplexF64.(H))
     return F.V, F.S
+end
+
+@doc raw"""
+    waterfill(singular_values, power::Real, noise_var::Real) -> (p, level)
+
+Total-power water-filling on the singular values of one MIMO channel (Tse and Viswanath, *Fundamentals of Wireless Communication*, Cambridge, 2005, §7.1.1, eq. (7.10)–(7.11); the parallel-channel solution is §5.3.3).
+
+# Arguments
+- `singular_values`: nonnegative singular values ``\lambda_i``, in any order. These are the ``S`` returned by [`svd_precoder`](@ref), not the eigenvalues of ``H^{\mathrm{H}} H``. A zero singular value is a mode that cannot carry power.
+- `power`: total transmit power ``P \ge 0``, finite. This is ``\sum_i p_i``, the same constraint as ``\mathbb{E}[\|x\|^2] = P`` in §7.1.1.
+- `noise_var`: complex noise variance ``N_0 = \mathbb{E}[|n_i|^2]`` on each receive antenna, finite and ``\ge 0``. This is the `noise_var` of [`apply_mimo`](@ref), not ``N_0/2``.
+
+# Returns
+- `p`: powers, one per input singular value, in the same order. ``p_i = \max(0,\, \mu - N_0/\lambda_i^2)`` and ``p_i = 0`` when ``\lambda_i = 0``.
+- `level`: the water level ``\mu`` in eq. (7.11). It is not the Lagrange multiplier of §5.3.3. When `power` is 0 and some ``\lambda_i > 0``, ``\mu = N_0 / \lambda_{\max}^2``, which leaves every mode dry. When every singular value is 0 and `power` is 0, `level` is `0.0`.
+
+`power > 0` with every singular value equal to 0 throws: the constraint cannot be met on the range of ``H``. ``N_0 = 0`` shares `power` uniformly across the strictly positive singular values.
+
+At high SNR (``N_0`` negligible beside ``P \lambda_{\min}^2``) every positive mode receives nearly `power` divided by the number of positive modes. At low SNR the allocation collapses onto the strongest mode (Tse and Viswanath, 2005, §7.1.1). The search is the water-level sweep: modes ordered from strongest to weakest, and the largest active set whose level still clears that set's noisiest mode.
+"""
+function waterfill(singular_values::AbstractVector{<:Real}, power::Real, noise_var::Real)
+    isempty(singular_values) && throw(ArgumentError("singular_values must be non-empty"))
+    P = float(power)
+    N0 = float(noise_var)
+    isfinite(P) && P >= 0 || throw(ArgumentError(
+        "power must be finite and ≥ 0, got $power",
+    ))
+    isfinite(N0) && N0 >= 0 || throw(ArgumentError(
+        "noise_var must be finite and ≥ 0, got $noise_var",
+    ))
+    n = length(singular_values)
+    σ = Vector{Float64}(undef, n)
+    i = 0
+    for s0 in singular_values
+        i += 1
+        s = float(s0)
+        isfinite(s) && s >= 0 || throw(ArgumentError(
+            "singular values must be finite and ≥ 0, got $s0",
+        ))
+        σ[i] = s
+    end
+    p = zeros(Float64, n)
+    positive = Int[]
+    λmax = 0.0
+    for j in 1:n
+        λ = abs2(σ[j])
+        if λ > 0
+            push!(positive, j)
+            λmax = max(λmax, λ)
+        end
+    end
+    if isempty(positive)
+        P == 0 && return p, 0.0
+        throw(ArgumentError("power is positive but every singular value is zero"))
+    end
+    if P == 0
+        return p, N0 / λmax
+    end
+    # Strongest eigenmode first, so the noise-over-gain ν is nondecreasing.
+    sort!(positive; by=j -> σ[j], rev=true)
+    m = length(positive)
+    ν = Vector{Float64}(undef, m)
+    @inbounds for j in 1:m
+        ν[j] = N0 == 0 ? 0.0 : N0 / abs2(σ[positive[j]])
+    end
+    # k = 1 always clears: μ = P + ν_1 > ν_1. Larger sets are tried first.
+    k_star = 1
+    level = P + ν[1]
+    for k in m:-1:2
+        μ = (P + sum(@view ν[1:k])) / k
+        if μ > ν[k]
+            k_star = k
+            level = μ
+            break
+        end
+    end
+    @inbounds for j in 1:k_star
+        p[positive[j]] = level - ν[j]
+    end
+    return p, level
+end
+
+@doc raw"""
+    svd_waterfill(H, power::Real, noise_var::Real) -> (F, p, level)
+
+SVD precoder with the total-power water-fill of [`waterfill`](@ref).
+
+# Arguments
+- `H`: `n_rx × n_tx` channel, at least ``1 \times 1``.
+- `power`, `noise_var`: forwarded to [`waterfill`](@ref). `noise_var` is the complex per-antenna variance used by [`apply_mimo`](@ref).
+
+# Returns
+- `F`: `n_tx × r` precoder, ``r = \min(n_{rx}, n_{tx})``,
+
+```math
+F = V \operatorname{diag}\bigl(\sqrt{p_1}, \ldots, \sqrt{p_r}\bigr),
+```
+
+where `V` and the singular values are those of [`svd_precoder`](@ref). Columns with ``p_i = 0`` are kept, as zeros, so column `i` is still singular mode `i` (largest singular value first). For unit-energy uncorrelated symbols ``s``, ``x = F s`` uses transmit power ``\|F\|_F^2 = \sum_i p_i``.
+- `p`: the power allocation, length `r`.
+- `level`: the water level ``\mu``.
+
+[`svd_precoder`](@ref) is unchanged and still applies no powers. This is single-link water-filling, not iterative multiuser water-filling.
+"""
+function svd_waterfill(H::AbstractMatrix{<:Number}, power::Real, noise_var::Real)
+    size(H, 1) >= 1 && size(H, 2) >= 1 || throw(ArgumentError(
+        "H must have at least one row and one column, got $(size(H))",
+    ))
+    V, S = svd_precoder(H)
+    p, level = waterfill(S, power, noise_var)
+    F = V * Diagonal(sqrt.(p))
+    return F, p, level
 end
 
 @doc raw"""
