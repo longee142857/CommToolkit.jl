@@ -22,9 +22,11 @@ makedocs(;
     format = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://longee142857.github.io/CommToolkit.jl/",
-        # One API-reference page. The default 200 KiB limit is crossed once
-        # EVM, the LFSR, and water-filling are documented alongside the rest.
-        size_threshold = 300 * 1024,
+        # One API-reference page. EVM, the LFSR, and water-filling already
+        # passed the 200 KiB default; SOVA, turbo, and the algebraic decoders
+        # sit on the same page.
+        size_threshold = 500 * 1024,
+        size_threshold_warn = 400 * 1024,
     ),
     pages = [
         "API Reference" => "index.md",

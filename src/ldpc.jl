@@ -415,7 +415,7 @@ H = \begin{bmatrix}
 \end{bmatrix}.
 ```
 
-The minimum distance is 3. Column weights are not constant (`column_weight == 0`); every row has weight 4. The Tanner graph contains 4-cycles, so flooding sum-product on this matrix is not maximum-likelihood. The matrix is here so tests can enumerate all 16 codewords. It is not an LDPC ensemble.
+The minimum distance is 3. Column weights are not constant (`column_weight == 0`); every row has weight 4. The Tanner graph contains 4-cycles, so flooding sum-product on this matrix is not maximum-likelihood. The matrix is here so tests can enumerate all 16 codewords. It is not an LDPC ensemble. Hard-decision syndrome decoding of the same codewords is [`hamming74_encode`](@ref) / [`hamming74_decode`](@ref), not this belief-propagation fixture.
 
 # References
 Lin and Costello, *Error Control Coding*, 2nd ed., §3.2: the parity-check matrix of the length-``2^3-1`` Hamming code has every nonzero vector of ``\mathrm{GF}(2)^3`` as a column.

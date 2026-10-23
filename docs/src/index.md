@@ -2,7 +2,7 @@
 
 API reference for the exported interface. This page is not a tutorial.
 
-The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE, it does not implement an O-RAN fronthaul, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity. `PSK` is coherent Gray ``M``-PSK. `DBPSK` and `DQPSK` are two-symbol differential detectors, not ``\pi/4``-DQPSK. `rice_channel` takes a linear Rice factor. `mrc` is ideal-CSI receive combining, not a MIMO detector.
+The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE, it does not implement an O-RAN fronthaul, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The turbo code is a short memory-2 teaching construction, not a 3GPP turbo code. `bch157_encode` is the binary BCH code of length 15 and dimension 7, not a Reed–Solomon code. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity. `PSK` is coherent Gray ``M``-PSK. `DBPSK` and `DQPSK` are two-symbol differential detectors, not ``\pi/4``-DQPSK. `rice_channel` takes a linear Rice factor. `mrc` is ideal-CSI receive combining, not a MIMO detector.
 
 Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, `Scrambling`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it.
 
@@ -49,14 +49,30 @@ evm
 
 ## Coding
 
+SOVA, the short turbo code, and the algebraic decoders are teaching implementations. They are not a 3GPP turbo code, not NR LDPC, and not a general Reed–Solomon or BCH library. `turbo_decode` is not part of the MCS / HARQ loop.
+
 ```@docs
 conv_encode
 viterbi_decode
 bcjr_decode
+sova_decode
 distance_spectrum
 puncture_mask
 puncture
 depuncture
+turbo_interleaver
+turbo_encode
+turbo_decode
+GF2m
+gf_add
+gf_mul
+gf_div
+gf_inv
+gf_pow
+hamming74_encode
+hamming74_decode
+bch157_encode
+bch157_decode
 LDPCCode
 LDPCResult
 gallager_ldpc

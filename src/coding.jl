@@ -1,7 +1,11 @@
 module Coding
 
-export conv_encode, viterbi_decode, bcjr_decode, distance_spectrum
+export conv_encode, viterbi_decode, bcjr_decode, sova_decode, distance_spectrum
 export puncture_mask, puncture, depuncture
+export turbo_interleaver, turbo_encode, turbo_decode
+export GF2m, gf_add, gf_mul, gf_div, gf_inv, gf_pow
+export hamming74_encode, hamming74_decode
+export bch157_encode, bch157_decode
 export LDPCCode, LDPCResult
 export gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H
 export ldpc_encode, ldpc_decode, ldpc_decode_details, ldpc_syndrome
@@ -94,7 +98,7 @@ L_j = \log\frac{p(y_j\mid c_j=0)}{p(y_j\mid c_j=1)}.
   `AbstractFloat` inputs are LLRs. They are not probabilities in ``[0,1]`` and not hard bits stored as floating-point 0/1. Integer vectors take the hard-decision method.
 
 # Returns
-The maximum-likelihood information bits. The ``K - 1`` tail bits are removed. Neither method is constrained to end in state 0; with a correct termination and few channel errors the best survivor ends at state 0 anyway. [`bcjr_decode`](@ref) does enforce termination.
+The maximum-likelihood information bits. The ``K - 1`` tail bits are removed. Neither method is constrained to end in state 0; with a correct termination and few channel errors the best survivor ends at state 0 anyway. [`bcjr_decode`](@ref) and [`sova_decode`](@ref) do enforce termination.
 
 # Branch metric
 The soft decoder minimises, on the coded pair of a branch,
@@ -250,7 +254,7 @@ Bahl, Cocke, Jelinek, and Raviv, IEEE Trans. Inf. Theory, 20(2):284–287, 1974,
 
 Terms independent of the branch cancel in the normalised forward and backward recursions. ``\alpha_0`` is concentrated on state 0. The encoder's two tail bits are fixed at 0 and ``\beta`` at the end of the block is concentrated on state 0, which is the terminated-code boundary condition. ``\alpha`` and ``\beta`` are normalised by their maximum at each step. A channel LLR of 0, the value [`depuncture`](@ref) writes for a punctured bit, drops that bit from ``\gamma``.
 
-The split into a priori and extrinsic LLRs is the L-value decomposition of Hagenauer, Offer, and Papke, IEEE Trans. Inf. Theory, 42(2):429–445, 1996. This function does not iterate with an outer code.
+The split into a priori and extrinsic LLRs is the L-value decomposition of Hagenauer, Offer, and Papke, IEEE Trans. Inf. Theory, 42(2):429–445, 1996. This function does not iterate with an outer code. [`sova_decode`](@ref) is the soft-output Viterbi approximation of the same terminated code. [`turbo_decode`](@ref) iterates a different, recursive systematic trellis; it does not call this function.
 """
 function bcjr_decode(llr::AbstractVector{<:AbstractFloat}; apriori::Union{Nothing,AbstractVector{<:Real}}=nothing)
     all(isfinite, llr) || throw(ArgumentError("LLRs must be finite"))
@@ -368,6 +372,177 @@ function _normalise_log!(v::AbstractVector{Float64})
     m = maximum(v)
     isfinite(m) && (v .-= m)
     return v
+end
+
+@doc raw"""
+    sova_decode(llr::AbstractVector{<:AbstractFloat}; apriori=nothing) -> Vector{Float64}
+
+Soft-output Viterbi (SOVA) decoding of a tail-terminated `(7, 5)` block. Returns extrinsic LLRs of the information bits.
+
+# Arguments
+- `llr`: finite channel LLRs of the coded bits from [`conv_encode`](@ref), same convention as [`bcjr_decode`](@ref). Even length, at least the two tail pairs. A `0` is an erasure, including a punctured bit restored by [`depuncture`](@ref).
+- `apriori`: optional finite a-priori LLRs of the information bits, ``L_a(u)=\log P(u=0)/P(u=1)``, length ``\texttt{length(llr)}/2 - 2``. `nothing` means ``L_a = 0``.
+
+# Returns
+Extrinsic information-bit LLRs, tail removed,
+
+```math
+L_e(u_k)=(1-2\hat{u}_k)\,\rho_k-L_a(u_k).
+```
+
+``\hat{u}`` is the maximum-likelihood information sequence on the terminated trellis. ``\rho_k\ge 0`` is the Hagenauer–Hoeher reliability: the minimum metric gap ``\Delta`` between the survivor and the runner-up at merges along that path where the two paths disagree in bit ``k``. The branch metric is ``-\log\gamma`` with the same ``\log\gamma`` as [`bcjr_decode`](@ref), so a positive scale matches the BCJR LLR unit. A positive ``L_e`` favours bit 0. Hard decisions are ``L_e .< 0`` when ``L_a = 0``.
+
+The two tail inputs are fixed at 0 and the survivor is the best path that ends in state 0, the same boundary condition as [`bcjr_decode`](@ref). [`viterbi_decode`](@ref) does not force that boundary. On a terminated word and a decisive channel the three hard decisions agree.
+
+# Approximation
+SOVA is not the BCJR. ``\rho_k`` is a competing-path gap, not a sum over paths, and it is often over-confident relative to the exact a-posteriori LLR (Hagenauer and Hoeher, Proc. IEEE GLOBECOM, 1989, pp. 1680–1686). Signs agree with [`bcjr_decode`](@ref) when the channel is noiseless or at high SNR and the ML and MAP bits coincide. Magnitudes are not required to match. If no competing path along the survivor ever disagrees in bit ``k``, ``\rho_k`` is replaced by ``\sum |L|+\sum |L_a|``, which is an upper bound on a path-metric gap in these units. The update window is the whole block, so time and memory grow as the square of the block length. This is a short-block decoder, not a sliding-window chip.
+
+The code is not systematic, so no channel LLR is subtracted beyond the ``L_a`` term. This function does not iterate with an outer code.
+"""
+function sova_decode(llr::AbstractVector{<:AbstractFloat}; apriori::Union{Nothing,AbstractVector{<:Real}}=nothing)
+    all(isfinite, llr) || throw(ArgumentError("LLRs must be finite"))
+    n_coded = length(llr)
+    iseven(n_coded) || throw(ArgumentError("LLR length must be even, got $n_coded"))
+    n_sym = n_coded ÷ 2
+    n_bits = n_sym - (CONV_K - 1)
+    n_bits >= 0 || throw(ArgumentError("coded sequence is shorter than the termination tail"))
+    if apriori === nothing
+        La = zeros(Float64, n_bits)
+    else
+        length(apriori) == n_bits || throw(ArgumentError(
+            "apriori length must be $n_bits, got $(length(apriori))",
+        ))
+        all(isfinite, apriori) || throw(ArgumentError("apriori LLRs must be finite"))
+        La = Float64.(apriori)
+    end
+
+    n_states = CONV_N_STATES
+    tb_state = zeros(Int, n_sym, n_states)
+    tb_bit = zeros(Int, n_sym, n_states)
+    tb_delta = fill(Inf, n_sym, n_states)
+    tb_comp = fill(-1, n_sym, n_states)
+    tb_comp_bit = zeros(Int, n_sym, n_states)
+    pm = fill(Inf, n_states)
+    pm[1] = 0.0
+    best_m = Vector{Float64}(undef, n_states)
+    second_m = Vector{Float64}(undef, n_states)
+    best_s = Vector{Int}(undef, n_states)
+    second_s = Vector{Int}(undef, n_states)
+    best_b = Vector{Int}(undef, n_states)
+    second_b = Vector{Int}(undef, n_states)
+
+    @inbounds for t in 1:n_sym
+        L0 = Float64(llr[2t - 1])
+        L1 = Float64(llr[2t])
+        tail = t > n_bits
+        La_t = tail ? 0.0 : La[t]
+        fill!(best_m, Inf)
+        fill!(second_m, Inf)
+        fill!(best_s, -1)
+        fill!(second_s, -1)
+        for s in 0:(n_states - 1)
+            isfinite(pm[s + 1]) || continue
+            ps = pm[s + 1]
+            for b in 0:1
+                tail && b == 1 && continue
+                met = ps - _branch_logγ(s, b, L0, L1, La_t)
+                ns = CONV_NEXT[s + 1, b + 1] + 1
+                better = best_s[ns] < 0 || met < best_m[ns] ||
+                    (met == best_m[ns] && (b < best_b[ns] || (b == best_b[ns] && s < best_s[ns])))
+                if better
+                    second_m[ns] = best_m[ns]
+                    second_s[ns] = best_s[ns]
+                    second_b[ns] = best_b[ns]
+                    best_m[ns] = met
+                    best_s[ns] = s
+                    best_b[ns] = b
+                elseif second_s[ns] < 0 || met < second_m[ns] ||
+                       (met == second_m[ns] && (b < second_b[ns] || (b == second_b[ns] && s < second_s[ns])))
+                    second_m[ns] = met
+                    second_s[ns] = s
+                    second_b[ns] = b
+                end
+            end
+        end
+        shift = Inf
+        for v in best_m
+            v < shift && (shift = v)
+        end
+        for ns in 1:n_states
+            if best_s[ns] < 0
+                pm[ns] = Inf
+                tb_comp[t, ns] = -1
+                tb_delta[t, ns] = Inf
+                continue
+            end
+            pm[ns] = best_m[ns] - shift
+            tb_state[t, ns] = best_s[ns]
+            tb_bit[t, ns] = best_b[ns]
+            if second_s[ns] >= 0
+                tb_delta[t, ns] = second_m[ns] - best_m[ns]
+                tb_comp[t, ns] = second_s[ns]
+                tb_comp_bit[t, ns] = second_b[ns]
+            else
+                tb_delta[t, ns] = Inf
+                tb_comp[t, ns] = -1
+            end
+        end
+    end
+    isfinite(pm[1]) || error("internal: SOVA found no path that ends in state 0")
+
+    state_after = zeros(Int, n_sym + 1)
+    @inbounds for t in n_sym:-1:1
+        state_after[t] = tb_state[t, state_after[t + 1] + 1]
+    end
+    ml_bit = Vector{Int}(undef, n_sym)
+    @inbounds for t in 1:n_sym
+        ml_bit[t] = tb_bit[t, state_after[t + 1] + 1]
+    end
+
+    ρ = fill(Inf, n_bits)
+    @inbounds for t in 1:n_sym
+        s_end = state_after[t + 1] + 1
+        cs = tb_comp[t, s_end]
+        cs < 0 && continue
+        Δ = tb_delta[t, s_end]
+        if t <= n_bits && tb_comp_bit[t, s_end] != ml_bit[t]
+            ρ[t] = min(ρ[t], Δ)
+        end
+        cj = cs
+        for j in (t - 1):-1:1
+            bj = tb_bit[j, cj + 1]
+            if j <= n_bits && bj != ml_bit[j]
+                ρ[j] = min(ρ[j], Δ)
+            end
+            cj = tb_state[j, cj + 1]
+        end
+    end
+
+    bound = 0.0
+    for x in llr
+        bound += abs(Float64(x))
+    end
+    for x in La
+        bound += abs(x)
+    end
+    Le = Vector{Float64}(undef, n_bits)
+    @inbounds for t in 1:n_bits
+        r = ρ[t]
+        isfinite(r) || (r = bound)
+        Le[t] = (1 - 2 * ml_bit[t]) * r - La[t]
+    end
+    return Le
+end
+
+function _binary_bits(bits::AbstractVector{<:Integer})
+    out = Vector{Int}(undef, length(bits))
+    i = 0
+    for b in bits
+        (b == 0 || b == 1) || throw(ArgumentError("bits must be 0 or 1"))
+        i += 1
+        @inbounds out[i] = Int(b)
+    end
+    return out
 end
 
 @doc raw"""
@@ -581,5 +756,7 @@ function depuncture(
 end
 
 include("ldpc.jl")
+include("turbo.jl")
+include("algebraic.jl")
 
 end # module Coding
