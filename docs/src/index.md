@@ -1,6 +1,6 @@
 # CommToolkit.jl API
 
-API reference for the exported interface. This page is not a tutorial.
+API reference for the exported interface of version 1.0.0. This page is not a tutorial. Those exported names are the stable surface; breaking changes require a major version bump.
 
 The stability surface, the validation matrix, and the scope page are written in Chinese, matching the README: [边界](boundaries.md), [公开接口](api.md), [验证矩阵](validation.md), [已知限制](limitations.md).
 

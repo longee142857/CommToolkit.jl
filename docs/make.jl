@@ -21,9 +21,13 @@ makedocs(;
     ],
     sitename = "CommToolkit.jl",
     authors = "刘恒宇",
+    # Sidebar selector. Inventory header uses the same string, which is
+    # `Project.toml`'s version. 1.0.0 freezes that number.
+    version = string(pkgversion(CommToolkit)),
     format = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://longee142857.github.io/CommToolkit.jl/",
+        inventory_version = string(pkgversion(CommToolkit)),
         # One API page. 0.8.5 was under the previous 450 KiB cap; BICM-ID
         # docstrings share that same page.
         size_threshold = 520 * 1024,

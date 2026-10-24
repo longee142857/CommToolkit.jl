@@ -2,8 +2,10 @@
 # Submodule exports must match it, plus the one intentional qualified name.
 
 @testset "Public API contract" begin
+    @test pkgversion(CommToolkit) == v"1.0.0"
     root = pkgdir(CommToolkit)
     api = read(joinpath(root, "docs", "src", "api.md"), String)
+    @test occursin("## v1.0 承诺", api)
     section = match(r"## 稳定导出\n(.*?)(?=\n## |\z)"s, api)
     @test section !== nothing
     listed = String[]

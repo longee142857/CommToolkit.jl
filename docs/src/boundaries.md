@@ -2,6 +2,8 @@
 
 本包把教材基带算法和闭式或参考实现对上。下面是类别上的边界。参数级的限制在 [已知限制](limitations.md)。验证到哪一步在 [验证矩阵](validation.md)。
 
+1.0.0 不扩大这些类别。有意留在这一版之外的是短 Reed–Solomon（代数码只有二进制 BCH(15,7)）、EXIT 图、TR 38.901 的 CDL、路线 C 的多用户 xApp，以及 NR LDPC。教学 MCS / HARQ 上的删余和 BICM 路径，以及平坦 Kronecker MIMO，留在范围内。
+
 ## 不是 3GPP NR / LTE 物理层
 
 OFDM 是教科书循环前缀模型。没有资源栅格，没有 DMRS 或 PTRS，没有 PSS / SSS，没有空口时隙。导频是固定线性同余序列，不是 Gold 码，也不是 Zadoff–Chu。
@@ -14,7 +16,7 @@ BICM 用现有星座和现有译码器做教学迭代。没有 NR 速率匹配�
 
 ## 不是 O-RAN
 
-没有前传映射，没有 eCPRI，没有开放前传的功能切分。`OFDMParams` 的文档写明：子载波图不是 O-RAN 前传映射。
+没有前传映射，没有 eCPRI，没有开放前传的功能切分，也没有路线 C 的多用户 xApp。`OFDMParams` 的文档写明：子载波图不是 O-RAN 前传映射。
 
 ## 不是几何 38.901 CDL
 

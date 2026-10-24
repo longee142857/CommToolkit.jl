@@ -1,10 +1,14 @@
 # CommToolkit.jl
 
-基带通信链路仿真库（v0.9.3），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
+> **v1.0.0**。公开接口按 SemVer 冻结。稳定面是 [公开接口](docs/src/api.md) 里 `using CommToolkit` 带入的名字；删除、改名或改变位置参数和已有返回值的含义，升主版本。
 
-公开名字是 [稳定面](docs/src/api.md)：`using CommToolkit` 带入的符号。0.9.2 在 0.9.1 的清单上增加 `teaching_punctured_mcs_table` 和 `teaching_punctured_amc_thresholds`。0.9.3 再增加 `exponential_correlation`、`kronecker_channel` 和 `apply_kronecker`。已有名字不改。本包不是什么，见 [边界](docs/src/boundaries.md)。对照表见 [验证矩阵](docs/src/validation.md)。参数级限制见 [已知限制](docs/src/limitations.md)。
+基带通信链路仿真库，用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
 
-这一版不升到 1.0.0。0.9.3 在 0.9.2 的删余 MCS / BICM 接收机之上，给 MIMO 增加平坦 Kronecker 空间相关。已有函数的位置参数和返回值不变。原来的五档表、默认 `receiver=:viterbi`，以及 0.9.2 的删余表都不变。
+**稳定接口**：[docs/src/api.md](docs/src/api.md)。本包不是什么，见 [边界](docs/src/boundaries.md)。对照表见 [验证矩阵](docs/src/validation.md)。参数级限制见 [已知限制](docs/src/limitations.md)。
+
+1.0.0 收的是已经落地的三块，不新加算法：0.9.1 的工程契约，0.9.2 的删余码率与 BICM 接入 MCS / Chase，0.9.3 的平坦 Kronecker。已有函数的位置参数和返回值不变。原来的五档表、默认 `receiver=:viterbi`，以及 0.9.2 的删余表都不变。
+
+教学范围内的是带删余和 BICM 路径的 MCS / HARQ，以及平坦 Kronecker MIMO。有意留在 1.0 之外的是短 Reed–Solomon（代数码只有 BCH(15,7)）、EXIT 图、TR 38.901 的 CDL、路线 C 的多用户 xApp、NR LDPC。不是 NR，不是 O-RAN，不是几何 CDL，也不是生产协议栈。
 
 ## 功能
 
@@ -94,7 +98,7 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 
 ## 已知限制
 
-完整条目在 [docs/src/limitations.md](docs/src/limitations.md)。0.9.2 改的是删余 MCS、卷积 BICM 接收机和同一删余字的 Chase。0.9.3 增加平坦 Kronecker。这里只留检索用的几条：
+完整条目在 [docs/src/limitations.md](docs/src/limitations.md)。1.0.0 不放宽这些限制。0.9.2 改的是删余 MCS、卷积 BICM 接收机和同一删余字的 Chase。0.9.3 增加平坦 Kronecker。这里只留检索用的几条：
 
 - 卷积母码仍是 (7, 5)。删余只有 2/3 和 3/4 两张图案。教学 MCS 可以用这三档名义码率，母码长度必须是图案周期的整数倍。联合界不覆盖删余码。不是 NR 速率匹配。
 - Turbo 是记忆 2 的短帧，不是 3GPP。BCH 只有 (15, 7)，不是 Reed–Solomon。
@@ -103,4 +107,4 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 - Kronecker 是一次平坦矩阵 ``R_r^{1/2} H_w R_t^{1/2}``。`mimo_channel` 仍是 i.i.d.。指数相关是 Loyka 的 Toeplitz 矩阵，不是 ``J_0``。检测器不按 ``R_t``、``R_r`` 做预白化。不是 Weichselberger，也不是 UMi。
 - OFDM 的 “MMSE” 是导频收缩后的线性插值。`ofdm_sync` 只在 ``(-1/2, 1/2)`` 个子载波间隔内无模糊。
 - Gardner、Costas、Schmidl–Cox 有写明的捕获范围，不是生产级接收机，也不是调度器。
-- 链路闭环是单链路 AWGN。原来的五档表还在；删余表是另一张，门限不能混用。Chase 重复同一删余字，不是增量冗余。没有多用户调度。
+- 链路闭环是单链路 AWGN。原来的五档表还在；删余表是另一张，门限不能混用。Chase 重复同一删余字，不是增量冗余。没有多用户调度，也没有路线 C 的多用户 xApp。
