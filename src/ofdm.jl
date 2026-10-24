@@ -147,7 +147,7 @@ end
 
 A static tapped-delay-line channel. `taps[i]` is the complex coefficient of a delay of `delays[i]` samples.
 
-The keyword constructor sets the tap magnitude to ``10^{\mathrm{gain\_dB}/20}`` and a deterministic phase ``e^{j 2\pi u_i}`` from the same LCG used for pilots (`u_i = _lcg(123 + i)`). Tap powers are **not** renormalised to one. This is a static TDL, not a 3GPP TDL-A/B/C/D/E profile and not a fading process.
+The keyword constructor sets the tap magnitude to ``10^{\mathrm{gain\_dB}/20}`` and a deterministic phase ``e^{j 2\pi u_i}`` from the same LCG used for pilots (`u_i = _lcg(123 + i)`). Tap powers are **not** renormalised to one. This is a static TDL, not a 3GPP TR 38.901 TDL-A/B/C/D/E profile, not a geometric clustered delay line (CDL), and not a fading process.
 """
 struct TDLChannel
     taps::Vector{ComplexF64}
