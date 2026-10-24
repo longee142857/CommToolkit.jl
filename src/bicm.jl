@@ -3,7 +3,7 @@
 
 Teaching bit-interleaved coded modulation with iterative demapping.
 
-Gray [`demodulate_soft`](@ref) is the equal-prior demapper. This module adds an optional rectangular bit interleaver and, for a convolutional log-MAP decoder or a short LDPC decoder, feeds coded-bit extrinsic LLRs back into the demapper. It is not 5G NR BICM: no NR rate matching, no NR LDPC base graph, no layer mapping, no scrambler, and no EXIT chart. It is not wired into the MCS / HARQ loop.
+Gray [`demodulate_soft`](@ref) is the equal-prior demapper. This module adds an optional rectangular bit interleaver and, for a convolutional log-MAP decoder or a short LDPC decoder, feeds coded-bit extrinsic LLRs back into the demapper. A convolutional block may be punctured to nominal rate 2/3 or 3/4 after encoding and before the interleaver; deleted mother bits re-enter the decoder as LLR 0. It is not 5G NR BICM: no NR rate matching, no NR LDPC base graph, no layer mapping, no scrambler, and no EXIT chart. [`CommToolkit.Link.simulate_link`](@ref) can call this receiver. This module does not own the MCS table.
 
 `:sova` and `:turbo` run one demapper pass and then the existing information-bit decoder. Those two public decoders do not return coded-bit extrinsic LLRs, so they are not iterated with the demapper.
 """
@@ -11,7 +11,7 @@ module BICM
 
 using ..Modulation: ModulationScheme, BPSK, QPSK, PSK, QAM, DBPSK, DQPSK,
     modulate, demodulate_soft, constellation, bits_per_symbol
-using ..Coding: conv_encode, sova_decode,
+using ..Coding: conv_encode, sova_decode, puncture, depuncture,
     LDPCCode, ldpc_encode, ldpc_decode_details,
     turbo_encode, turbo_decode
 using ..Interleaving: block_interleave, block_deinterleave
@@ -179,21 +179,22 @@ end
 
 @doc raw"""
     bicm_map(info, scheme::ModulationScheme; encoder::Symbol=:conv, n_rows::Integer=0,
-             labels=nothing, code=nothing, perm=nothing)
+             labels=nothing, code=nothing, perm=nothing, rate::Real=1//2)
 
-Encode, optionally bit-interleave, and modulate.
+Encode, optionally puncture, optionally bit-interleave, and modulate.
 
 # Arguments
 - `info`: information bits in ``\{0,1\}``.
 - `scheme`: [`BPSK`](@ref), [`QPSK`](@ref), [`PSK`](@ref), or square [`QAM`](@ref). Differential schemes are rejected.
 - `encoder`: `:conv` calls [`conv_encode`](@ref). `:ldpc` calls [`ldpc_encode`](@ref) and requires `code`. `:turbo` calls [`turbo_encode`](@ref) and requires `perm`.
-- `n_rows`: passed to [`block_interleave`](@ref) on the coded bits. `0` leaves them in encoder order.
+- `n_rows`: passed to [`block_interleave`](@ref) on the bits that will be modulated. `0` leaves them in that order. The interleaver sees the punctured stream, not the mother stream.
 - `labels`: a permutation of `0:M-1` giving the integer bit label of each [`constellation`](@ref) point, or `nothing` for Gray ([`bicm_labels`](@ref)). [`bicm_psk8_id_labels`](@ref) is the 8-PSK set-partitioning map.
+- `rate`: convolutional puncture rate, `1//2`, `2//3`, or `3//4`, forwarded to [`puncture`](@ref). `1//2` deletes nothing. `2//3` and `3//4` require `encoder === :conv`. This is the Yasuda / IEEE 802.11 mask on the `(7, 5)` mother code, including the tail. It is not NR rate matching. A floating-point rate is rejected. Julia normalises `2//4` to `1//2`.
 
 # Returns
 Channel symbols in modulator order. Gray `BPSK` with `labels === nothing` is the real vector from [`modulate`](@ref). Every other path returns `Vector{ComplexF64}`.
 
-The coded length, including a convolutional or turbo tail, must be a multiple of [`bits_per_symbol`](@ref)`(scheme)`. The terminated convolutional rate on `n` information bits is ``n/(2n+4)``, not exactly ``1/2``.
+The length after puncturing, including a convolutional or turbo tail, must be a multiple of [`bits_per_symbol`](@ref)`(scheme)`. The terminated convolutional mother length on `n` information bits is ``2n+4``. The nominal punctured rate is not the payload rate: CRC bits, if the caller put them in `info`, and the tail are not payload.
 """
 function bicm_map(
     info::AbstractVector{<:Integer},
@@ -203,9 +204,14 @@ function bicm_map(
     labels=nothing,
     code=nothing,
     perm=nothing,
+    rate::Real=1//2,
 )
     k = _bits_per(scheme)
+    rate = _checked_conv_rate(rate, encoder)
     coded = _encode(info, encoder, code, perm)
+    if rate != 1//2
+        coded = puncture(coded, rate)
+    end
     nr = _checked_rows(n_rows, length(coded))
     _require_multiple(length(coded), k)
     bits = _interleave(coded, nr)
@@ -619,6 +625,28 @@ function _check_iterations(iterations::Integer, decoder::Symbol)
     return it
 end
 
+function _checked_conv_rate(rate, who::Symbol)
+    rate isa Rational || throw(ArgumentError(
+        "rate must be a Rational such as 2//3, got $(repr(rate))",
+    ))
+    r = Rational{Int}(numerator(rate), denominator(rate))
+    (r == 1//2 || r == 2//3 || r == 3//4) || throw(ArgumentError(
+        "puncture rate must be 1//2, 2//3, or 3//4, got $r",
+    ))
+    if r != 1//2 && who !== :conv && who !== :bcjr && who !== :sova
+        throw(ArgumentError(
+            "puncture rate $r applies only to the convolutional mother code " *
+            "(:conv, :bcjr, or :sova), got $(repr(who))",
+        ))
+    end
+    return r
+end
+
+function _transmitted_conv_length(n_mother::Int, rate::Rational{Int})
+    rate == 1//2 && return n_mother
+    return length(puncture(zeros(Int, n_mother), rate))
+end
+
 function _expected_coded_length(decoder::Symbol, n_info::Int, code, perm)
     if decoder === :bcjr || decoder === :sova
         n_info >= 0 || throw(ArgumentError("n_info must be ≥ 0, got $n_info"))
@@ -650,27 +678,28 @@ end
                 code=nothing, ldpc_iterations::Integer=8,
                 algorithm::Symbol=:normalized_min_sum,
                 perm=nothing, turbo_iterations::Integer=4,
-                llr_clip::Real=50) -> BICMResult
+                llr_clip::Real=50, rate::Real=1//2) -> BICMResult
 
 Iterative demapping and decoding of one block from [`bicm_map`](@ref).
 
 # Arguments
-- `symbols`, `scheme`, `noise_var`, `approx`, `labels`, `gains`: the same contract as [`bicm_demap`](@ref). `n_rows` and `labels` must be the values used to map the block.
-- `n_info`: number of information bits. For `:bcjr` and `:sova` the coded length is ``2(n_{\mathrm{info}}+2)``. For `:ldpc` it is `code.n` and `n_info` must equal `code.k`. For `:turbo` it is ``3 n_{\mathrm{info}}+8``.
+- `symbols`, `scheme`, `noise_var`, `approx`, `labels`, `gains`: the same contract as [`bicm_demap`](@ref). `n_rows`, `labels`, and `rate` must be the values used to map the block.
+- `n_info`: number of information bits. For `:bcjr` and `:sova` the mother length is ``2(n_{\mathrm{info}}+2)``. For `:ldpc` the transmitted length is `code.n` and `n_info` must equal `code.k`. For `:turbo` it is ``3 n_{\mathrm{info}}+8``.
+- `rate`: see [`bicm_map`](@ref). `1//2` leaves the mother stream unchanged, so existing calls keep their coded length. `2//3` and `3//4` are legal only for `:bcjr` and `:sova`. The symbol block must then contain the punctured length, not the mother length. Deleted positions are filled with LLR 0 before the SISO ([`depuncture`](@ref)). Extrinsic feedback is punctured again, so an erased mother bit is not a demapper prior.
 - `decoder`:
-  - `:bcjr` — coded-bit log-MAP on the terminated `(7, 5)` trellis. The branch metric and the termination match [`CommToolkit.Coding.bcjr_decode`](@ref). Information-bit LLRs at `iterations == 1` match `bcjr_decode` on the deinterleaved demapper output. Coded-bit extrinsic LLRs, clipped and interleaved, are the next demapper prior.
-  - `:ldpc` — [`ldpc_decode_details`](@ref) with `early_stop=false` and `max_iter=ldpc_iterations`. Extrinsic feedback is `posterior - L_channel`, where `L_channel` is the demapper extrinsic and not the previous prior. `algorithm` is forwarded.
-  - `:sova` — one pass: deinterleaved demapper LLRs go to [`sova_decode`](@ref). `iterations` must be 1.
-  - `:turbo` — one pass: those LLRs go to [`turbo_decode`](@ref) with `perm` and `turbo_iterations`. `iterations` must be 1.
+  - `:bcjr` — coded-bit log-MAP on the terminated `(7, 5)` trellis. The branch metric and the termination match [`CommToolkit.Coding.bcjr_decode`](@ref). Information-bit LLRs at `iterations == 1`, `rate == 1//2`, and a zero information-bit prior match `bcjr_decode` on the deinterleaved demapper output. Coded-bit extrinsic LLRs, clipped and interleaved, are the next demapper prior.
+  - `:ldpc` — [`ldpc_decode_details`](@ref) with `early_stop=false` and `max_iter=ldpc_iterations`. Extrinsic feedback is `posterior - L_channel`, where `L_channel` is the demapper extrinsic and not the previous prior. `algorithm` is forwarded. `rate` must be `1//2`.
+  - `:sova` — one pass: deinterleaved, depunctured demapper LLRs go to [`sova_decode`](@ref). `iterations` must be 1.
+  - `:turbo` — one pass: deinterleaved demapper LLRs go to [`turbo_decode`](@ref) with `perm` and `turbo_iterations`. `iterations` must be 1 and `rate` must be `1//2`.
 - `iterations`: demapper–decoder passes, from 1 to 32. The default 4 is a teaching choice. One pass is BICM without feedback.
 - `llr_clip`: positive finite cap on the magnitude of coded-bit extrinsic LLRs before they re-enter the demapper. The default 50 keeps the exact demapper's exponentials in a comfortable range. Information-bit LLRs returned in the result are not clipped.
 
 # Schedule
-The demapper writes an extrinsic LLR for every modulated bit. [`block_deinterleave`](@ref) restores encoder order when `n_rows > 0`. The decoder treats that vector as its channel observation. Feedback to the demapper is interleaved again with [`block_interleave`](@ref). The information-bit prior inside the convolutional decoder stays zero: the prior lives on the coded bits, which are the bits the modulator used.
+The demapper writes an extrinsic LLR for every modulated bit. [`block_deinterleave`](@ref) restores the order those bits had before interleaving. [`depuncture`](@ref) then restores mother-code order when `rate != 1//2`. The decoder treats that mother vector as its channel observation. Feedback to the demapper is punctured, clipped, and interleaved again with [`block_interleave`](@ref). The information-bit prior inside the convolutional decoder stays zero: the prior lives on the coded bits that the modulator actually sent.
 
 Hard decisions are `llr .< 0`. This does not approach coded-modulation capacity, and Gray labelling is not expected to move much between pass 1 and pass 4. The set-partitioning 8-PSK labels are the map on which a short AWGN test separates those two passes.
 
-Not implemented: puncturing inside the loop, EXIT charts, a SOVA or turbo coded-bit SISO, differential BICM, and the MCS table.
+Not implemented: EXIT charts, a SOVA or turbo coded-bit SISO, puncturing of LDPC or turbo blocks, differential BICM, and an MCS table inside this module. The link loop that calls this function is [`CommToolkit.Link.simulate_link`](@ref).
 """
 function bicm_decode(
     symbols::AbstractVector{<:Number},
@@ -689,6 +718,7 @@ function bicm_decode(
     perm=nothing,
     turbo_iterations::Integer=4,
     llr_clip::Real=50,
+    rate::Real=1//2,
 )
     k = _bits_per(scheme)
     n_info = Int(n_info)
@@ -697,8 +727,13 @@ function bicm_decode(
     (isfinite(clip) && clip > 0) || throw(ArgumentError(
         "llr_clip must be finite and positive, got $llr_clip",
     ))
+    rate = _checked_conv_rate(rate, decoder)
     n_coded = length(symbols) * k
     expect = _expected_coded_length(decoder, n_info, code, perm)
+    n_mother = expect
+    if (decoder === :bcjr || decoder === :sova) && rate != 1//2
+        expect = _transmitted_conv_length(n_mother, rate)
+    end
     n_coded == expect || throw(ArgumentError(
         "symbol block has $n_coded coded bits; decoder=$(repr(decoder)) expects $expect",
     ))
@@ -711,21 +746,25 @@ function bicm_decode(
         ext_mod = bicm_demap(symbols, scheme, noise_var;
                              apriori=apriori, approx=approx, labels=labels, gains=gains)
         ext_enc = _deinterleave(ext_mod, nr)
+        channel = ext_enc
+        if (decoder === :bcjr || decoder === :sova) && rate != 1//2
+            channel = depuncture(ext_enc, rate, n_mother; fill=0.0)
+        end
         feedback = nothing
         if decoder === :bcjr
-            info, coded_ext = _conv_siso(ext_enc)
-            feedback = coded_ext
+            info, coded_ext = _conv_siso(channel)
+            feedback = rate == 1//2 ? coded_ext : puncture(coded_ext, rate)
         elseif decoder === :sova
-            info = sova_decode(ext_enc)
+            info = sova_decode(channel)
         elseif decoder === :ldpc
-            detail = ldpc_decode_details(code, ext_enc;
+            detail = ldpc_decode_details(code, channel;
                                          algorithm=algorithm,
                                          max_iter=ldpc_iterations,
                                          early_stop=false)
             info = detail.posterior[code.info_pos]
-            feedback = detail.posterior .- ext_enc
+            feedback = detail.posterior .- channel
         elseif decoder === :turbo
-            info = turbo_decode(ext_enc, perm; iterations=turbo_iterations)
+            info = turbo_decode(channel, perm; iterations=turbo_iterations)
         end
         if feedback !== nothing && pass < it
             apriori = _interleave(_clip_feedback(feedback, clip), nr)

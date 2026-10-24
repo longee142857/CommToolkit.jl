@@ -1,5 +1,17 @@
 # 变更记录
 
+## 0.9.2
+
+把卷积删余和一条 BICM 接收机接到已有的 MCS / Chase 闭环上。不是 NR CQI，不是 NR 速率匹配，不是增量冗余，也没有 EXIT 图。`teaching_mcs_table` 的五档、门限和默认 `receiver=:viterbi` 都不变。已有函数的位置参数和返回值不变。这一版坐在 0.9.1 的公开接口契约上：稳定清单增加两个导出名字，不改名、不删除，也不改已有位置参数和返回值。它把现成的删余和 BICM 接进链路，不新开调制或信道族，所以不升 0.10，也不升 1.0，记为 0.9.2。
+
+- 删余 MCS：`mcs_convolutional(...; rate=1//2)` 也可取 `2//3`、`3//4`，图案就是 `puncture_mask`。母码长度必须是图案周期的整数倍，尾比特算在里面。`n_coded` 是删余后真正调制的比特数，`n_mother` 是删余前的长度。频谱效率仍是净荷比特 / 发送符号。LDPC 行没有删余码率。
+- 删余表：`teaching_punctured_mcs_table`。净荷 54 比特，母码 144 比特。五档按频谱效率递增：BPSK 1/2（``54/144``）、QPSK 1/2（``54/72``）、QPSK 2/3（``54/54``）、QPSK 3/4（``54/48``）、16-QAM 1/2（``54/36``）。门限 `teaching_punctured_amc_thresholds` 是 ``-\infty, 2, 4, 6, 8`` dB，来自 Julia 1.10.12、种子 `0x0c0de1162`、每点 80 块、无 HARQ 的固定 MCS 吞吐包络。5 dB 上码率 2/3 和 3/4 差大约 0.01 bit/use；同一条种子在 Julia 1.13.2 上这一档会换边。测试用 0 dB、3 dB 和 10 dB，不拿交点做判据。这组门限不能套到原来的五档表上。
+- Chase：重传的是同一个删余字。Viterbi 路径把发送比特的 LLR 相加，删掉的母码位保持 LLR 0，再进软 Viterbi。不是把删掉的比特在下一次重传里补上。
+- BICM 路径：`simulate_link(...; receiver=:bicm)`。只接受卷积行。顺序是编码、删余、`bicm_n_rows` 块交织、调制。译码是 `bicm_decode` 的 `:bcjr`。多次传输把同一符号平均，噪声方差除以已合并的次数，这是重复 AWGN 符号的充分统计，不是比特度量 Chase。`bicm_iterations` 默认 1（没有外信息反馈），不是 `bicm_decode` 的默认 4。`bicm_labels=nothing` 是 Gray；8-PSK 集合分割要调用者传入 `bicm_psk8_id_labels`。``E_s/N_0 = +\infty`` 时 BICM 用 ``\sigma^2 = 10^{-6}``，因为解调器不接受 0。Viterbi 接收机不能顺便带上这些关键字。
+- `bicm_map` / `bicm_decode` 增加关键字 `rate`。默认 `1//2` 不删余，原有调用的码长不变。`2//3` 和 `3//4` 只给卷积的 `:conv` / `:bcjr` / `:sova`。外信息先删余再交织，送回的是实际调制过的比特。
+- 对照：`test/link.jl`。3 dB 自适应（QPSK 1/2）相对固定 BPSK 和固定 16-QAM，10 dB 自适应（16-QAM）相对固定 BPSK，吞吐用 Clopper–Pearson（``\alpha = 10^{-4}``，80 块）分开。2 dB 的 QPSK 3/4，3 次 Chase 相对单次的 CRC 失败率区间分开，吞吐更高。8-PSK 集合分割、12 行交织、max-log、``E_s/N_0 = 6\,\mathrm{dB}``、80 块：链路内 4 次迭代相对 1 次，净荷比特错误率和 CRC 失败率的区间都分开。随机数是全局 `Random.seed!`，与原来的链路测试相同。不宣称逼近容量，不宣称 NR。打印表在 `demos/link_puncture_bicm.jl`。
+- 契约：`docs/src/api.md` 增加 `teaching_punctured_mcs_table` 和 `teaching_punctured_amc_thresholds`。边界、已知限制和验证矩阵改成与这条链路一致。SOVA 和 Turbo 仍然不进 MCS 表。
+
 ## 0.9.1
 
 工程冻结这一刀：公开接口当成契约写下来，验证对照收成一张表，README 改成导航。不是新算法，不改已有函数的位置参数和返回值，也不升到 1.0.0。0.9.0 已经把 BICM-ID 收进 0.9，这一版按补丁记为 0.9.1，而不是 0.10.0。

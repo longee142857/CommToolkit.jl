@@ -359,4 +359,215 @@ end
     @test_throws ArgumentError simulate_link(0.0, 1; channel_quality=:moment, snr_window=0)
     @test_throws ArgumentError simulate_link(0.0, 1; channel_quality=:moment,
                                              initial_esn0_db=NaN)
+    @test_throws ArgumentError simulate_link(0.0, 1; receiver=:nr)
+    @test_throws ArgumentError simulate_link(0.0, 1; bicm_iterations=4)
+    @test_throws ArgumentError simulate_link(0.0, 1; bicm_n_rows=2)
+    @test_throws ArgumentError simulate_link(0.0, 1; bicm_labels=bicm_psk8_id_labels())
+    @test_throws ArgumentError simulate_link(0.0, 1; bicm_llr_clip=10)
+    @test_throws ArgumentError simulate_link(Inf, 1; receiver=:bicm)
+    @test_throws ArgumentError simulate_link(Inf, 1; receiver=:bicm, mcs=3)
+    @test_throws ArgumentError simulate_link(Inf, 1; table=teaching_punctured_mcs_table(),
+                                             receiver=:bicm, bicm_n_rows=5)
+    @test_throws ArgumentError simulate_link(Inf, 1; receiver=:bicm, mcs=1, bicm_iterations=0)
+end
+
+@testset "Punctured convolutional MCS" begin
+    table = teaching_punctured_mcs_table()
+    @test [row.name for row in table] == [
+        "BPSK-1/2", "QPSK-1/2", "QPSK-2/3", "QPSK-3/4", "16QAM-1/2",
+    ]
+    @test [row.rate for row in table] == [1//2, 1//2, 2//3, 3//4, 1//2]
+    @test all(row -> row.family === :convolutional && row.ldpc === nothing, table)
+    @test all(row -> row.payload_bits == 54 && row.n_mother == 144, table)
+    @test [row.n_coded for row in table] == [144, 144, 108, 96, 144]
+    @test [row.n_symbols for row in table] == [144, 72, 54, 48, 36]
+    ses = spectral_efficiency.(table)
+    @test issorted(ses, lt=<)
+    @test ses ≈ [54 / 144, 54 / 72, 1.0, 54 / 48, 54 / 36]
+    @test teaching_punctured_mcs_table()[3].rate == 2//3
+    @test occursin("rate=2//3", sprint(show, table[3]))
+    @test occursin("QPSK-2/3", sprint(show, table[3]))
+
+    # The original five-row table is still the unpunctured list.
+    old = teaching_mcs_table()
+    @test old[1].rate == 1//2
+    @test old[1].n_mother == old[1].n_coded == 132
+    @test old[1].n_symbols == 132
+    @test old[3].rate === nothing
+    @test old[3].n_mother == 88
+    @test spectral_efficiency.(old) ≈ [48 / 132, 48 / 66, 41 / 44, 48 / 33, 48 / 22]
+
+    @test_throws ArgumentError mcs_convolutional("float", QPSK(), 54; rate=0.5)
+    @test_throws ArgumentError mcs_convolutional("other", QPSK(), 54; rate=4//5)
+    @test_throws ArgumentError mcs_convolutional("partial", QPSK(), 1; rate=2//3)
+
+    for (i, row) in enumerate(table)
+        Random.seed!(RNG_SEED)
+        report = simulate_link(Inf, 2; table=table, mcs=i, max_tx=3)
+        _assert_link_report(report; max_tx=3)
+        @test report.bler == 0.0
+        @test report.ber == 0.0
+        @test report.n_delivered == 2
+        @test report.mean_transmissions == 1.0
+        @test report.throughput ≈ spectral_efficiency(row)
+        @test report.n_channel_uses == 2 * row.n_symbols
+        @test report.mcs_histogram[i] == 2
+    end
+
+    # Same CRC word, Gray labels, one demapper pass. Log-MAP on a noiseless
+    # punctured block still passes the CRC. n_rows divides the transmitted length.
+    for (idx, n_rows, iters) in ((3, 6, 2), (4, 8, 2), (2, 12, 1))
+        Random.seed!(RNG_SEED)
+        report = simulate_link(Inf, 1; table=table, mcs=idx, max_tx=2,
+                               receiver=:bicm, bicm_iterations=iters, bicm_n_rows=n_rows)
+        _assert_link_report(report; max_tx=2)
+        @test report.ber == 0.0
+        @test report.n_delivered == 1
+        @test report.mean_transmissions == 1.0
+        @test report.throughput ≈ spectral_efficiency(table[idx])
+    end
+
+    # 8-PSK set partitioning is not a Gray Viterbi row. The BICM receiver owns the labels.
+    psk = mcs_convolutional("8PSK-1/2", PSK(8), 48; rate=1//2)
+    @test psk.n_mother == 132
+    @test psk.n_coded == 132
+    @test psk.n_symbols == 44
+    Random.seed!(RNG_SEED)
+    psk_report = simulate_link(Inf, 1; table=[psk], mcs=1, receiver=:bicm,
+                               bicm_iterations=3, bicm_n_rows=12,
+                               bicm_labels=bicm_psk8_id_labels(), approx=:maxlog)
+    @test psk_report.ber == 0.0
+    @test psk_report.throughput ≈ spectral_efficiency(psk)
+
+    # Julia normalises 2//4 to 1//2, so this is the mother code, not a new mask.
+    normalised = mcs_convolutional("norm", BPSK(), 48; rate=2//4)
+    @test normalised.rate == 1//2
+    @test normalised.n_coded == normalised.n_mother
+end
+
+@testset "Punctured adaptive MCS versus fixed rows" begin
+    # Design sweep: Julia 1.10.12, seed RNG_SEED, 80 blocks, no HARQ.
+    # 3 dB is inside the QPSK-1/2 bin. 10 dB is inside the 16-QAM bin.
+    # 5 dB is a near-tie and is not used. α = 1e-4, same interval as the
+    # unpunctured adaptive test. Not an NR CQI comparison.
+    table = teaching_punctured_mcs_table()
+    edges = teaching_punctured_amc_thresholds()
+    @test length(edges) == length(table)
+    @test edges[1] == -Inf
+    @test edges[2:end] == [2.0, 4.0, 6.0, 8.0]
+    policy = ThresholdAMC(edges)
+    @test select_mcs(policy, 0.0) == 1
+    @test select_mcs(policy, 1.9) == 1
+    @test select_mcs(policy, 2.0) == 2
+    @test select_mcs(policy, 3.0) == 2
+    @test select_mcs(policy, 3.9) == 2
+    @test select_mcs(policy, 4.0) == 3
+    @test select_mcs(policy, 5.9) == 3
+    @test select_mcs(policy, 6.0) == 4
+    @test select_mcs(policy, 7.9) == 4
+    @test select_mcs(policy, 8.0) == 5
+    @test select_mcs(policy, 10.0) == 5
+
+    n = 80
+    Random.seed!(RNG_SEED)
+    adapt = simulate_link(3.0, n; table=table, policy=policy)
+    Random.seed!(RNG_SEED)
+    conservative = simulate_link(3.0, n; table=table, mcs=1)
+    Random.seed!(RNG_SEED)
+    aggressive = simulate_link(3.0, n; table=table, mcs=5)
+    _assert_link_report(adapt; max_tx=1)
+    _assert_link_report(conservative; max_tx=1)
+    _assert_link_report(aggressive; max_tx=1)
+    @test adapt.mcs_histogram == [0, n, 0, 0, 0]
+    @test conservative.mcs_histogram[1] == n
+    @test aggressive.mcs_histogram[5] == n
+    se_a = spectral_efficiency(table[2])
+    se_c = spectral_efficiency(table[1])
+    se_g = spectral_efficiency(table[5])
+    @test adapt.throughput ≈ adapt.n_delivered / n * se_a
+    lo_a, _ = clopper_pearson(adapt.n_delivered, n, BER_ALPHA)
+    _, hi_c = clopper_pearson(conservative.n_delivered, n, BER_ALPHA)
+    _, hi_g = clopper_pearson(aggressive.n_delivered, n, BER_ALPHA)
+    @test lo_a * se_a > hi_c * se_c
+    @test lo_a * se_a > hi_g * se_g
+
+    Random.seed!(RNG_SEED)
+    high = simulate_link(10.0, n; table=table, policy=policy)
+    Random.seed!(RNG_SEED)
+    stuck = simulate_link(10.0, n; table=table, mcs=1)
+    @test high.mcs_histogram[5] == n
+    @test stuck.mcs_histogram[1] == n
+    lo_h, _ = clopper_pearson(high.n_delivered, n, BER_ALPHA)
+    _, hi_s = clopper_pearson(stuck.n_delivered, n, BER_ALPHA)
+    @test lo_h * spectral_efficiency(table[5]) > hi_s * spectral_efficiency(table[1])
+
+    Random.seed!(RNG_SEED)
+    low = simulate_link(0.0, 12; table=table, policy=policy)
+    @test low.mcs_histogram[1] == 12
+end
+
+@testset "Chase combining of one punctured word" begin
+    # QPSK rate 3/4 at 2 dB Es/N0. One transmission is mostly CRC failures.
+    # Three Chase transmissions of that same punctured word are mostly ACKs.
+    # The repeat does not send the bits the mask deleted. n = 80, α = 1e-4.
+    table = teaching_punctured_mcs_table()
+    n = 80
+    Random.seed!(RNG_SEED)
+    single = simulate_link(2.0, n; table=table, mcs=4, max_tx=1)
+    Random.seed!(RNG_SEED)
+    chase = simulate_link(2.0, n; table=table, mcs=4, max_tx=3)
+    _assert_link_report(single; max_tx=1)
+    _assert_link_report(chase; max_tx=3)
+    @test single.mcs_histogram[4] == n
+    @test chase.mcs_histogram[4] == n
+    @test single.n_channel_uses == n * table[4].n_symbols
+    @test chase.n_channel_uses == chase.n_transmissions * table[4].n_symbols
+    @test chase.mean_transmissions > 1
+    nack_s = single.n_blocks - single.n_ack
+    nack_c = chase.n_blocks - chase.n_ack
+    @test nack_s >= 40
+    lo_s, _ = clopper_pearson(nack_s, n, BER_ALPHA)
+    _, hi_c = clopper_pearson(nack_c, n, BER_ALPHA)
+    @test hi_c < lo_s
+    @test chase.throughput > single.throughput
+    @test chase.ber < single.ber
+end
+
+@testset "BICM receiver versus one demapper pass" begin
+    # Terminated (7, 5), payload 48, CRC-16, 8-PSK set partitioning, 12-row
+    # interleaver, max-log. Es/N0 = 6 dB, 80 blocks, seed RNG_SEED.
+    # iterations = 4 against iterations = 1 on the same AWGN draws.
+    # Not Gray, not NR, not a capacity claim. Clopper–Pearson α = 1e-4 on
+    # payload bit errors and on CRC failures, the same interval as test/bicm.jl.
+    # max_tx = 1, so this is not a HARQ gain.
+    row = mcs_convolutional("8PSK-1/2", PSK(8), 48)
+    table = [row]
+    labels = bicm_psk8_id_labels()
+    n = 80
+    function run_bicm(iterations)
+        Random.seed!(RNG_SEED)
+        return simulate_link(6.0, n; table=table, mcs=1, receiver=:bicm,
+                             bicm_iterations=iterations, bicm_n_rows=12,
+                             bicm_labels=labels, approx=:maxlog)
+    end
+    one = run_bicm(1)
+    four = run_bicm(4)
+    _assert_link_report(one; max_tx=1)
+    _assert_link_report(four; max_tx=1)
+    @test one.n_payload_bits == four.n_payload_bits == n * row.payload_bits
+    @test one.n_channel_uses == four.n_channel_uses == n * row.n_symbols
+    @test one.n_bit_errors >= 200
+    @test four.n_bit_errors >= 40
+    @test four.n_bit_errors < one.n_bit_errors
+    lo1, _ = clopper_pearson(one.n_bit_errors, one.n_payload_bits, BER_ALPHA)
+    _, hi4 = clopper_pearson(four.n_bit_errors, four.n_payload_bits, BER_ALPHA)
+    @test hi4 < lo1
+    nack1 = one.n_blocks - one.n_ack
+    nack4 = four.n_blocks - four.n_ack
+    @test nack1 >= 60
+    lo_b, _ = clopper_pearson(nack1, n, BER_ALPHA)
+    _, hi_b = clopper_pearson(nack4, n, BER_ALPHA)
+    @test hi_b < lo_b
+    @test four.throughput > one.throughput
+    @test four.ber < one.ber
 end

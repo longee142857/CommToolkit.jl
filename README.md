@@ -1,10 +1,10 @@
 # CommToolkit.jl
 
-基带通信链路仿真库（v0.9.1），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
+基带通信链路仿真库（v0.9.2），用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
 
-公开名字是 [稳定面](docs/src/api.md)：`using CommToolkit` 带入的符号，这一版不改名。本包不是什么，见 [边界](docs/src/boundaries.md)。对照表见 [验证矩阵](docs/src/validation.md)。参数级限制见 [已知限制](docs/src/limitations.md)。
+公开名字是 [稳定面](docs/src/api.md)：`using CommToolkit` 带入的符号。0.9.2 在 0.9.1 的清单上增加 `teaching_punctured_mcs_table` 和 `teaching_punctured_amc_thresholds`，不改已有名字。本包不是什么，见 [边界](docs/src/boundaries.md)。对照表见 [验证矩阵](docs/src/validation.md)。参数级限制见 [已知限制](docs/src/limitations.md)。
 
-这一版不升到 1.0.0。0.9.1 只把上述三页和这份导航固定下来，不改已有函数的位置参数和返回值。
+这一版不升到 1.0.0。0.9.2 把卷积删余码率和一条 BICM 接收机接进教学 MCS / Chase 环，不改已有函数的位置参数和返回值。原来的五档表和默认 `receiver=:viterbi` 不变。
 
 ## 功能
 
@@ -14,8 +14,8 @@
 - **信道**（`Channel`）：AWGN 的 `snr_db` 是 ``E_b/N_0``。平坦瑞利、块衰落、平坦 Rice（`K` 为线性比）、Clarke/Jakes 时间相关、Nakagami-m、理想 CSI 的 MRC，以及调用者给定抽头的单载波 FIR。
 - **编码**（`Coding`）：终止的 (7, 5) 卷积码，硬 / 软 Viterbi、log-BCJR、SOVA，以及到 2/3、3/4 的周期删余。短帧 Turbo（记忆 2 的 RSC）。``\mathrm{GF}(2^m)``（``m = 2,3,4``）、Hamming(7,4)、二进制 BCH(15,7)。短 LDPC：Gallager、Fan 阵列码、系统编码、泛洪 sum-product 与 min-sum。
 - **交织**（`Interleaving`）：矩形块交织，按行写入、按列读出。
-- **BICM**（`BICM`）：比特交织编码调制的教学接收机。默认 Gray。`bicm_psk8_id_labels` 是 8-PSK 集合分割。没有接到 MCS / HARQ。
-- **链路**（`Link`）：CRC-16、五档教学 MCS、Chase 合并、按 ``E_s/N_0`` 切换的 MCS。``E_s = 1``，``\sigma^2 = N_0/2``。
+- **BICM**（`BICM`）：比特交织编码调制的教学接收机。默认 Gray。`bicm_psk8_id_labels` 是 8-PSK 集合分割。卷积块可用 `rate = 2//3` 或 `3//4`，删余在交织之前。`simulate_link(...; receiver=:bicm)` 只调用卷积行。不是 NR BICM，没有 EXIT 图。
+- **链路**（`Link`）：CRC-16、原来的五档教学 MCS，以及另一张净荷 54 比特的删余卷积表。默认接收机是软输入 Viterbi。`receiver=:bicm` 在卷积行上改用 BICM。重传重复同一删余字，不是增量冗余。``E_s = 1``，``\sigma^2 = N_0/2``。
 - **均衡**（`Equalization`）：线性块 ZF / MMSE、符号率 LMS、有限长块 DFE。
 - **OFDM**（`OFDM`）：循环前缀收发、静态抽头延迟线、已知 CSI / LS / 逐导频收缩后线性插值、van de Beek 定时与小数倍频偏。
 - **MIMO**（`MIMO`）：i.i.d. 瑞利上的 ML、ZF、MMSE、SIC，ZF 与 SVD 预编码，总功率注水，Alamouti ``2\times1`` 与 ``2\times2``。
@@ -50,6 +50,8 @@ ber(bits, demodulate(rx, BPSK()))
 
 ![BPSK、QPSK、16-QAM 在 AWGN 下以及 BPSK 在平坦瑞利下的蒙特卡洛误码率与闭式曲线](docs/src/assets/ber_validation.png)
 
+删余 MCS 和链路内 BICM 的对照写在 [验证矩阵](docs/src/validation.md)。打印表在 `demos/link_puncture_bicm.jl`，不依赖 Plots。种子仍是 `0x0c0de1162`，每点 80 块，区间仍是 Clopper–Pearson（``\alpha = 10^{-4}``）。3 dB 和 10 dB 比较自适应与固定行，2 dB 的 QPSK 3/4 比较 3 次 Chase 与单次，6 dB 的 8-PSK 比较 1 次与 4 次迭代。5 dB 附近码率 2/3 和 3/4 几乎打平，测试不拿它做判据。
+
 本地运行：
 
 ```julia
@@ -68,9 +70,9 @@ src/coding.jl         Coding（包含 ldpc.jl、turbo.jl、algebraic.jl；卷积
 src/turbo.jl          短帧 Turbo：记忆 2 RSC、块/步长交织、log-BCJR 迭代
 src/algebraic.jl      GF(2^m)、Hamming(7,4) 伴随式硬判决、BCH(15,7)
 src/interleaving.jl   Interleaving：矩形块交织
-src/bicm.jl           BICM：比特交织编码调制与迭代解调
+src/bicm.jl           BICM：比特交织编码调制、卷积删余与迭代解调
 src/ldpc.jl           短 LDPC：Gallager、阵列码、系统编码、泛洪译码
-src/link.jl           Link：CRC-16、教学 MCS、Chase 合并、自适应选择
+src/link.jl           Link：CRC-16、教学 MCS、删余码率、Chase 合并、BICM 接收机
 src/equalization.jl   Equalization
 src/ofdm.jl           OFDM
 src/mimo.jl           MIMO
@@ -92,12 +94,12 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 
 ## 已知限制
 
-完整条目在 [docs/src/limitations.md](docs/src/limitations.md)，与 v0.9.0 的技术边界相同。这里只留检索用的几条：
+完整条目在 [docs/src/limitations.md](docs/src/limitations.md)。0.9.2 改的是删余 MCS、卷积 BICM 接收机和同一删余字的 Chase。这里只留检索用的几条：
 
-- 卷积母码仍是 (7, 5)。删余只有 2/3 和 3/4 两张图案。联合界不覆盖删余码。
+- 卷积母码仍是 (7, 5)。删余只有 2/3 和 3/4 两张图案。教学 MCS 可以用这三档名义码率，母码长度必须是图案周期的整数倍。联合界不覆盖删余码。不是 NR 速率匹配。
 - Turbo 是记忆 2 的短帧，不是 3GPP。BCH 只有 (15, 7)，不是 Reed–Solomon。
-- LDPC 是短教学码，不是 NR 基图。BICM-ID 没有 EXIT 图，也没有接到 MCS / HARQ。
+- LDPC 是短教学码，不是 NR 基图。BICM 没有 EXIT 图。`receiver=:bicm` 只接卷积行，不是 NR BICM。
 - Jakes 是平坦 Clarke 谱的 DFT 实现，不是正弦和，也不是抽头延迟线。`TDLChannel` 不是 TR 38.901 的 CDL。
 - OFDM 的 “MMSE” 是导频收缩后的线性插值。`ofdm_sync` 只在 ``(-1/2, 1/2)`` 个子载波间隔内无模糊。
 - Gardner、Costas、Schmidl–Cox 有写明的捕获范围，不是生产级接收机，也不是调度器。
-- 链路闭环是单链路 AWGN 上的五档教学 MCS 和有限次 Chase 合并。没有多用户调度。
+- 链路闭环是单链路 AWGN。原来的五档表还在；删余表是另一张，门限不能混用。Chase 重复同一删余字，不是增量冗余。没有多用户调度。

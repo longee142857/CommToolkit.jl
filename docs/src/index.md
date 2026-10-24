@@ -4,7 +4,7 @@ API reference for the exported interface. This page is not a tutorial.
 
 The stability surface, the validation matrix, and the scope page are written in Chinese, matching the README: [边界](boundaries.md), [公开接口](api.md), [验证矩阵](validation.md), [已知限制](limitations.md).
 
-The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE PHY, it does not implement an O-RAN fronthaul, it does not implement a geometric 3GPP TR 38.901 clustered delay line, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The turbo code is a short memory-2 teaching construction, not a 3GPP turbo code. `bch157_encode` is the binary BCH code of length 15 and dimension 7, not a Reed–Solomon code. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity. `PSK` is coherent Gray ``M``-PSK. `DBPSK` and `DQPSK` are two-symbol differential detectors, not ``\pi/4``-DQPSK. `rice_channel` takes a linear Rice factor. `jakes_fading` is a flat Clarke spectrum on a DFT grid, not a classical Jakes sum of sinusoids. `nakagami_channel` takes the Nakagami parameter `m`. `mrc` is ideal-CSI receive combining, not a MIMO detector.
+The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE PHY, it does not implement an O-RAN fronthaul, it does not implement a geometric 3GPP TR 38.901 clustered delay line, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The turbo code is a short memory-2 teaching construction, not a 3GPP turbo code. `bch157_encode` is the binary BCH code of length 15 and dimension 7, not a Reed–Solomon code. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity. Convolutional MCS rows may use the periodic puncture masks; retransmissions still repeat one word. `receiver=:bicm` is a teaching BICM path on those convolutional rows, not NR BICM. `PSK` is coherent Gray ``M``-PSK. `DBPSK` and `DQPSK` are two-symbol differential detectors, not ``\pi/4``-DQPSK. `rice_channel` takes a linear Rice factor. `jakes_fading` is a flat Clarke spectrum on a DFT grid, not a classical Jakes sum of sinusoids. `nakagami_channel` takes the Nakagami parameter `m`. `mrc` is ideal-CSI receive combining, not a MIMO detector.
 
 Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `BICM`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, `Scrambling`, `Sync`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it. Gardner, Costas, and Schmidl–Cox in `Sync` are teaching loops with a stated capture range. They do not replace `ofdm_sync`.
 
@@ -97,7 +97,7 @@ ldpc_row_degrees
 
 ## BICM
 
-Teaching bit-interleaved coded modulation. Not 5G NR BICM, not an EXIT chart, and not part of the MCS / HARQ loop. With Gray labels and no bit prior, `bicm_demap` is `demodulate_soft`. `bicm_psk8_id_labels` is Ungerboeck set partitioning on 8-PSK; that is the map used when an iterative gain has to be visible. `:sova` and `:turbo` are one demapper pass plus the existing information-bit decoder.
+Teaching bit-interleaved coded modulation. Not 5G NR BICM and not an EXIT chart. With Gray labels and no bit prior, `bicm_demap` is `demodulate_soft`. `bicm_psk8_id_labels` is Ungerboeck set partitioning on 8-PSK; that is the map used when an iterative gain has to be visible. `:sova` and `:turbo` are one demapper pass plus the existing information-bit decoder. Convolutional `rate` of `2//3` or `3//4` punctures the mother code before the interleaver. The MCS loop calls this receiver through `simulate_link(...; receiver=:bicm)`; this module does not own the MCS table.
 
 ```@docs
 CommToolkit.BICM
@@ -123,7 +123,7 @@ descramble
 
 ## Interleaving
 
-Rectangular block interleaver. Not wired into the MCS table.
+Rectangular block interleaver. The MCS table does not select an interleaver. `receiver=:bicm` may pass `bicm_n_rows` into this same permutation after puncturing.
 
 ```@docs
 CommToolkit.Interleaving
@@ -133,7 +133,7 @@ block_deinterleave
 
 ## Link
 
-Teaching CRC, MCS table, Chase combining, and threshold or outer-loop MCS selection. Not an NR protocol.
+Teaching CRC, MCS tables, Chase combining, and threshold or outer-loop MCS selection. Convolutional rows can take puncture rates 1/2, 2/3, and 3/4. `receiver=:bicm` is Chase combining into a convolutional BICM decoder. Not an NR protocol and not incremental redundancy.
 
 ```@docs
 CommToolkit.Link
@@ -146,11 +146,13 @@ spectral_efficiency
 mcs_convolutional
 mcs_ldpc
 teaching_mcs_table
+teaching_punctured_mcs_table
 ThresholdAMC
 OuterLoopAMC
 select_mcs
 observe_acknack!
 teaching_amc_thresholds
+teaching_punctured_amc_thresholds
 estimate_esn0_db
 LinkReport
 simulate_link

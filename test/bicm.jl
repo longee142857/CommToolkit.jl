@@ -341,6 +341,51 @@ end
     @test_throws ArgumentError bicm_decode(syms, QPSK(), 0.2, code.k + 1; decoder=:ldpc, code=code)
 end
 
+@testset "Punctured convolutional BICM" begin
+    # Mother length 2*(10+2) = 24. Rate 2/3 keeps 18 bits; rate 3/4 keeps 16.
+    # Rate 1/2 is the unpunctured mapper, so the new keyword must not move it.
+    info = _bicm_bits(10, 0x81)
+    plain = bicm_map(info, QPSK())
+    @test bicm_map(info, QPSK(); rate=1//2) == plain
+    @test bicm_decode(plain, QPSK(), 1e-6, 10; iterations=1).bits == info
+
+    for (rate, n_rows) in ((2//3, 6), (3//4, 4))
+        syms = bicm_map(info, QPSK(); rate=rate, n_rows=n_rows)
+        mother = 2 * (length(info) + 2)
+        @test length(syms) * 2 == length(puncture(zeros(Int, mother), rate))
+        @test length(syms) * 2 < mother
+        quiet = bicm_decode(syms, QPSK(), 1e-6, length(info);
+                            rate=rate, n_rows=n_rows, iterations=3)
+        @test quiet.bits == info
+        @test quiet.iterations == 3
+    end
+
+    # 8-PSK set partitioning, rate 2/3. Mother 2*(16+2) = 36, kept 27, three bits per symbol.
+    labels = bicm_psk8_id_labels()
+    info8 = _bicm_bits(16, 0x82)
+    sym8 = bicm_map(info8, PSK(8); rate=2//3, n_rows=9, labels=labels)
+    @test length(sym8) == 9
+    quiet8 = bicm_decode(sym8, PSK(8), 1e-6, 16; rate=2//3, n_rows=9, labels=labels,
+                         iterations=3, approx=:maxlog)
+    @test quiet8.bits == info8
+
+    kept = puncture(conv_encode(info), 2//3)
+    llr = depuncture(20.0 .* (1.0 .- 2.0 .* Float64.(kept)), 2//3, 24; fill=0.0)
+    sova_bits = Int.(sova_decode(llr) .< 0)
+    sym_sova = bicm_map(info, BPSK(); rate=2//3)
+    sova_rx = bicm_decode(sym_sova, BPSK(), 1e-6, length(info);
+                          decoder=:sova, iterations=1, rate=2//3)
+    @test sova_rx.bits == info
+    @test sova_bits == info
+
+    @test_throws ArgumentError bicm_map(info, QPSK(); rate=2 / 3)
+    @test_throws ArgumentError bicm_map(info, QPSK(); rate=4//5)
+    @test_throws ArgumentError bicm_map(info, QPSK(); encoder=:ldpc, code=array_ldpc(2, 4, 5), rate=2//3)
+    @test_throws ArgumentError bicm_decode(sym8, PSK(8), 1e-6, 16; decoder=:ldpc, rate=2//3,
+                                           code=array_ldpc(2, 4, 5))
+    @test_throws ArgumentError bicm_decode(plain, QPSK(), 1e-6, 10; rate=2//3, iterations=1)
+end
+
 @testset "BICM-ID gain" begin
     # Terminated (7, 5), 8-PSK set partitioning, 12×67 block interleaver.
     # Es = 1, R = 400/804, Eb = 1/(R * 3) = 0.67.

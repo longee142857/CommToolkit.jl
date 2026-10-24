@@ -8,7 +8,7 @@ OFDM 是教科书循环前缀模型。没有资源栅格，没有 DMRS 或 PTRS�
 
 LDPC 是短的 Gallager 正则构造和 Fan 阵列码，不是 NR BG1/BG2。Turbo 是记忆 2 的递归系统卷积 (1, 5/7)，信息长度不超过 1024，不是 3GPP 的 (13, 15) 或 (15, 13)，也不是 LTE 的记忆 4 分量码。卷积删余是 ``K = 3`` 母码上的两张周期图案，不是 NR 速率匹配。BCH 只有二进制 (15, 7)，不是 Reed–Solomon。
 
-BICM 用现有星座和现有译码器做教学迭代。没有 NR 速率匹配、层映射、扰码或 NR LDPC 基图，也没有 EXIT 图，没有接到 MCS / HARQ。
+BICM 用现有星座和现有译码器做教学迭代。没有 NR 速率匹配、层映射、扰码或 NR LDPC 基图，也没有 EXIT 图。`simulate_link(...; receiver=:bicm)` 可以在卷积 MCS 行上调用它。LDPC 和 Turbo 的 BICM 不进 MCS 表。
 
 扰码是加性 LFSR，不是 NR 扰码。CRC 是 CRC-16/XMODEM 那条多项式，不是 NR 的 CRC24。
 
@@ -30,4 +30,4 @@ BICM 用现有星座和现有译码器做教学迭代。没有 NR 速率匹配�
 
 `ofdm_sync` 仍是 van de Beek 的循环前缀相关。捕获范围是 ``(-1/2, 1/2)`` 个子载波间隔，不估计整数倍频偏，也不按定时估计平移缓存。Schmidl–Cox 不修改这三个函数。
 
-`Link` 是单链路 AWGN 上的五档教学 MCS、CRC-16 和有限次 Chase 合并。没有 HARQ 进程号，没有时序，没有多用户，没有调度器，没有功率控制，没有增量冗余。门限不是 NR CQI。SOVA、Turbo 和 BICM-ID 当前都没有接到这张表上。
+`Link` 是单链路 AWGN 上的教学 MCS、CRC-16 和有限次 Chase 合并。原来的表仍是五档。另一张表是净荷 54 比特的删余卷积码，名义码率 1/2、2/3、3/4，重传重复同一删余字。没有 HARQ 进程号，没有时序，没有多用户，没有调度器，没有功率控制，没有增量冗余。门限不是 NR CQI。SOVA 和 Turbo 没有接到这两张表上。`receiver=:bicm` 只接受卷积行，默认接收机仍是软输入 Viterbi。
