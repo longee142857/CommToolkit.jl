@@ -2,7 +2,8 @@ module MIMO
 
 using LinearAlgebra
 
-export mimo_channel, apply_mimo,
+export mimo_channel, exponential_correlation, kronecker_channel,
+    apply_mimo, apply_kronecker,
     ml_detect, zf_detect, mmse_detect, sic_detect,
     zf_precoder, svd_precoder, waterfill, svd_waterfill,
     alamouti_encode, alamouti_decode_2x1, alamouti_decode_2x2
@@ -15,6 +16,205 @@ i.i.d. Rayleigh matrix of size `(n_rx, n_tx)`. Each entry is ``\mathcal{CN}(0, 1
 function mimo_channel(n_tx::Integer, n_rx::Integer)
     n_tx >= 1 && n_rx >= 1 || throw(ArgumentError("n_tx and n_rx must be ≥ 1"))
     return (randn(Int(n_rx), Int(n_tx)) .+ im .* randn(Int(n_rx), Int(n_tx))) ./ sqrt(2)
+end
+
+# Reject a Hermitian defect larger than this fraction of the largest entry.
+# A negative eigenvalue inside the same absolute tolerance is rounding and is clipped.
+const _CORR_HERM_TOL = 1e-8
+# |ρ| may overshoot 1 by this much (for example abs(cis(θ))) and is then clipped to 1.
+const _CORR_ABS_TOL = 1e-12
+
+@doc raw"""
+    exponential_correlation(n::Integer, ρ::Number; spacing::Real=1) -> Matrix{ComplexF64}
+
+Loyka's exponential correlation matrix for `n` antennas on a line (Loyka, IEEE Commun. Lett., 5(9):369–371, 2001).
+
+`ρ` is the correlation of two antennas **one unit of distance** apart, and ``|\rho| \le 1``. `spacing` is the distance between adjacent antennas, in that same unit. Elements `i` and `j` are ``|i-j|\,\texttt{spacing}`` apart, and
+
+```math
+R_{ij}
+  = |\rho|^{|i-j|\,\texttt{spacing}}
+    \exp\bigl(j\,\arg(\rho)\,(j-i)\,\texttt{spacing}\bigr),
+```
+
+with ``R_{ii} = 1``. For `spacing = 1` the first row is ``1, \rho, \rho^2, \ldots`` and the matrix is Hermitian Toeplitz. A real nonnegative `ρ`, and a negative real `ρ` whose lags ``|i-j|\,\texttt{spacing}`` are all integers, give a real symmetric matrix ``R_{ij} = \rho^{|i-j|\,\texttt{spacing}}`` (ordinary real power). A negative base with a non-integer lag uses ``\arg(\rho) = \pi``, so that entry is complex.
+
+# Special cases
+- `|ρ| = 0` returns `I` for every finite `spacing`, including `0`. No power of zero is formed.
+- `spacing = 0` and `|ρ| > 0` returns the all-ones matrix: every pair sits at distance 0.
+- `n = 1` returns a `1 × 1` matrix `[1]`, for every accepted `ρ` and `spacing`.
+- `|ρ| = 1` is a rank-1 phase ramp. `|ρ|` may exceed 1 by at most `1e-12` and is then clipped to 1; a larger modulus is rejected.
+
+`n ≥ 1`. `spacing` must be finite and `≥ 0`. `ρ` must be finite. Every accepted pair `(ρ, spacing)` produces a positive semidefinite correlation matrix with unit diagonal.
+
+This is a Toeplitz coefficient for [`kronecker_channel`](@ref). It is not ``J_0(2\pi d/\lambda)``, not an array manifold, and not a 3GPP antenna pattern.
+"""
+function exponential_correlation(n::Integer, ρ::Number; spacing::Real=1)
+    n = Int(n)
+    n >= 1 || throw(ArgumentError("n must be ≥ 1, got $n"))
+    ρc = ComplexF64(ρ)
+    isfinite(ρc) || throw(ArgumentError("ρ must be finite, got $ρ"))
+    s = Float64(spacing)
+    (isfinite(s) && s >= 0) || throw(ArgumentError(
+        "spacing must be finite and ≥ 0, got $spacing",
+    ))
+    mag = abs(ρc)
+    mag <= 1 + _CORR_ABS_TOL || throw(ArgumentError(
+        "correlation coefficient must satisfy |ρ| ≤ 1, got |ρ| = $mag",
+    ))
+    mag = min(mag, 1.0)
+    R = Matrix{ComplexF64}(I, n, n)
+    mag == 0 && return R
+    # A real base with an integer lag uses the ordinary real power, so a
+    # negative ρ stays real. A non-integer lag keeps arg(ρ) = π.
+    ρ_real = imag(ρc) == 0
+    ρr = copysign(mag, real(ρc))
+    θ = angle(ρc)
+    @inbounds for j in 1:n
+        for i in 1:n
+            i == j && continue
+            lag = (j - i) * s
+            dist = abs(lag)
+            if ρ_real && dist == round(dist)
+                R[i, j] = ρr^Int(round(dist))
+            else
+                amp = mag == 1 ? 1.0 : mag^dist
+                R[i, j] = amp * cis(θ * lag)
+            end
+        end
+    end
+    return R
+end
+
+function _exact_identity(R::AbstractMatrix)
+    n, m = size(R)
+    n == m || return false
+    @inbounds for j in 1:n
+        for i in 1:n
+            v = R[i, j]
+            if i == j
+                v == 1 || return false
+            else
+                v == 0 || return false
+            end
+        end
+    end
+    return true
+end
+
+"""Hermitian PSD square root. `what` names the argument in the error text."""
+function _hermitian_sqrt(R::AbstractMatrix{<:Number}, what::AbstractString)
+    n, m = size(R)
+    n == m && n >= 1 || throw(ArgumentError(
+        "$what must be square with at least one row, got $(size(R))",
+    ))
+    C = Matrix{ComplexF64}(undef, n, n)
+    scale = 1.0
+    @inbounds for j in 1:n
+        for i in 1:n
+            v = ComplexF64(R[i, j])
+            isfinite(v) || throw(ArgumentError("$what must be finite"))
+            C[i, j] = v
+            scale = max(scale, abs(v))
+        end
+    end
+    herm_err = 0.0
+    @inbounds for j in 1:n
+        for i in 1:n
+            herm_err = max(herm_err, abs(C[i, j] - conj(C[j, i])))
+        end
+    end
+    herm_err <= _CORR_HERM_TOL * scale || throw(ArgumentError(
+        "$what must be Hermitian; maximum |R - Rᴴ| is $herm_err",
+    ))
+    F = eigen(Hermitian((C .+ C') ./ 2))
+    tol = _CORR_HERM_TOL * scale
+    λmin = F.values[1]
+    λmin >= -tol || throw(ArgumentError(
+        "$what must be positive semidefinite; smallest eigenvalue is $λmin",
+    ))
+    λ = Vector{Float64}(undef, n)
+    @inbounds for i in 1:n
+        v = F.values[i]
+        λ[i] = v < 0 ? 0.0 : v
+    end
+    return ComplexF64.(F.vectors * Diagonal(sqrt.(λ)) * F.vectors')
+end
+
+@doc raw"""
+    kronecker_channel(n_tx::Integer, n_rx::Integer) -> Matrix{ComplexF64}
+    kronecker_channel(R_tx, R_rx) -> Matrix{ComplexF64}
+    kronecker_channel(n_tx::Integer, n_rx::Integer, R_tx, R_rx) -> Matrix{ComplexF64}
+
+One draw of a **flat Kronecker** spatially correlated Rayleigh matrix, size `n_rx × n_tx`,
+
+```math
+H = R_r^{1/2}\, H_w\, R_t^{1/2}.
+```
+
+`H_w` is the i.i.d. matrix of [`mimo_channel`](@ref): every real part, then every imaginary part, each ``\mathcal{CN}(0, 1)``. ``R_t^{1/2}`` and ``R_r^{1/2}`` are the Hermitian positive-semidefinite square roots, from the eigenvalue decomposition. On a real correlation matrix this is the same product as CommPy's `MIMOFlatChannel` (`sqrtm(R_rx) @ H_w @ sqrtm(R_tx)`). On a complex Hermitian factor the right multiplier is that Hermitian square root itself.
+
+The separable correlation, with `p, r` receive indices and `q, s` transmit indices, is
+
+```math
+\mathbb{E}[H_{pq} H_{rs}^{*}] = (R_r)_{pr}\,(R_t)_{sq}.
+```
+
+Column-major `vec` (Julia's `vec`) therefore has covariance ``R_t^{\mathsf{T}} \otimes R_r``, because ``\mathrm{vec}(ABC) = (C^{\mathsf{T}} \otimes A)\,\mathrm{vec}(B)`` with ``A = R_r^{1/2}`` and ``C = R_t^{1/2}``. The one-sided moments are ``\mathbb{E}[H H^{\mathrm{H}}] = \mathrm{tr}(R_t)\, R_r`` and ``\mathbb{E}[H^{\mathrm{H}} H] = \mathrm{tr}(R_r)\, R_t``.
+
+Kermoal, Schumacher, Pedersen, Mogensen, and Frederiksen (IEEE J. Sel. Areas Commun., 20(6):1211–1226, 2002) factor the narrowband covariance as a Kronecker product of the two link ends; the Appendix shows that the correlation of two channel coefficients is the product of the antenna correlations. The square-root product above is that factorization. `H_w` is the i.i.d. matrix of Tse and Viswanath, 2005, §7.1.
+
+# Arguments
+- `R_tx`: transmit correlation, `n_tx × n_tx`, Hermitian and positive semidefinite. Passed as given: the diagonal is not scaled to 1.
+- `R_rx`: receive correlation, `n_rx × n_rx`, same requirements.
+
+A unit diagonal is the usual correlation normalisation. Then ``\mathbb{E}[|H_{ij}|^2] = 1``, matching [`mimo_channel`](@ref), and ``\mathrm{tr}(R_t) = n_t``. A matrix whose largest entry of ``R - R^{\mathrm{H}}`` is at most `1e-8` times ``\max(1, \|R\|_\infty)`` is replaced by its Hermitian part before the square root. An eigenvalue below ``-10^{-8}`` times that scale is rejected. A smaller negative eigenvalue is clipped to 0, so a singular factor such as the all-ones matrix (`ρ = 1`) is accepted.
+
+# Calls
+- `kronecker_channel(n_tx, n_rx)` is [`mimo_channel`](@ref). Both factors are identities.
+- Exact identity matrices take that same path: the draw is `H_w`, not a product by `I`, and the global random stream matches `mimo_channel`. Any other factor consumes the same `H_w` and then multiplies. Validation of `R_tx` and `R_rx` happens before the draw, so a rejected matrix does not advance the stream.
+- The four-argument method checks that `R_tx` is `n_tx × n_tx` and `R_rx` is `n_rx × n_rx`, then calls the two-matrix method.
+
+# What this is not
+One flat matrix per call. Distinct calls are independent. There is no Doppler spectrum and no delay tap. This is not the Weichselberger model (no coupling matrix between the two ends) and not a 3GPP TR 38.901 CDL or UMi geometry. [`exponential_correlation`](@ref) supplies a Loyka factor; it is not ``J_0``.
+
+Pass `H` to [`apply_mimo`](@ref), [`ml_detect`](@ref), [`zf_detect`](@ref), [`mmse_detect`](@ref), and [`sic_detect`](@ref). Those functions condition on the realized `H`. [`mmse_detect`](@ref) still assumes uncorrelated unit-energy symbols and spatially white noise; it does not whiten `R_t` or `R_r`. [`apply_kronecker`](@ref) draws `H` and then calls `apply_mimo`.
+"""
+function kronecker_channel(R_tx::AbstractMatrix{<:Number}, R_rx::AbstractMatrix{<:Number})
+    n_tx = size(R_tx, 1)
+    n_rx = size(R_rx, 1)
+    n_tx >= 1 && n_rx >= 1 || throw(ArgumentError(
+        "R_tx and R_rx must each have at least one row, got $(size(R_tx)) and $(size(R_rx))",
+    ))
+    # Square roots before the draw: a rejected factor must not consume randn.
+    tx_sqrt = _exact_identity(R_tx) ? nothing : _hermitian_sqrt(R_tx, "R_tx")
+    rx_sqrt = _exact_identity(R_rx) ? nothing : _hermitian_sqrt(R_rx, "R_rx")
+    Hw = (randn(n_rx, n_tx) .+ im .* randn(n_rx, n_tx)) ./ sqrt(2)
+    if rx_sqrt !== nothing
+        Hw = rx_sqrt * Hw
+    end
+    if tx_sqrt !== nothing
+        Hw = Hw * tx_sqrt
+    end
+    return Hw
+end
+
+function kronecker_channel(n_tx::Integer, n_rx::Integer, R_tx::AbstractMatrix{<:Number},
+                           R_rx::AbstractMatrix{<:Number})
+    nt = Int(n_tx)
+    nr = Int(n_rx)
+    nt >= 1 && nr >= 1 || throw(ArgumentError("n_tx and n_rx must be ≥ 1"))
+    size(R_tx) == (nt, nt) || throw(ArgumentError(
+        "R_tx must be $(nt)×$(nt), got $(size(R_tx))",
+    ))
+    size(R_rx) == (nr, nr) || throw(ArgumentError(
+        "R_rx must be $(nr)×$(nr), got $(size(R_rx))",
+    ))
+    return kronecker_channel(R_tx, R_rx)
+end
+
+function kronecker_channel(n_tx::Integer, n_rx::Integer)
+    return mimo_channel(n_tx, n_rx)
 end
 
 @doc raw"""
@@ -41,6 +241,31 @@ function apply_mimo(x::AbstractVector{<:Number}, H::AbstractMatrix{<:Number}, no
         y = y .+ σ .* randn(length(y)) .+ im .* σ .* randn(length(y))
     end
     return y
+end
+
+@doc raw"""
+    apply_kronecker(x, R_tx, R_rx, noise_var::Real) -> (y, H)
+
+Draw one flat Kronecker channel and apply it.
+
+`H` is [`kronecker_channel`](@ref)`(R_tx, R_rx)`. `y` is [`apply_mimo`](@ref)`(x, H, noise_var)`. `length(x)` must equal the number of rows of `R_tx`, which is `n_tx`. `R_rx` sets `n_rx`.
+
+The draw order on the global stream is the `H_w` of `kronecker_channel` (all real parts, then all imaginary parts), then the noise of `apply_mimo` (all real parts, then all imaginary parts) when `noise_var > 0`. `noise_var = 0` draws `H` and does not draw noise. A negative `noise_var`, or an `x` whose length disagrees with `R_tx`, is rejected before either draw.
+
+This is the same `H` the existing detectors take. It does not change [`mimo_channel`](@ref) or [`apply_mimo`](@ref).
+"""
+function apply_kronecker(
+    x::AbstractVector{<:Number},
+    R_tx::AbstractMatrix{<:Number},
+    R_rx::AbstractMatrix{<:Number},
+    noise_var::Real,
+)
+    noise_var >= 0 || throw(ArgumentError("noise_var must be ≥ 0, got $noise_var"))
+    length(x) == size(R_tx, 1) || throw(ArgumentError(
+        "R_tx is $(size(R_tx, 1))×$(size(R_tx, 2)) but x has length $(length(x))",
+    ))
+    H = kronecker_channel(R_tx, R_rx)
+    return apply_mimo(x, H, noise_var), H
 end
 
 @doc raw"""

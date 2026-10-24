@@ -1,8 +1,8 @@
 # 公开接口
 
-这是准备进入 1.0 的稳定面，不是教程。0.9.2 在 0.9.1 的清单上增加两个链路名字，不改已有名字，也不把版本号升到 1.0.0。
+这是准备进入 1.0 的稳定面，不是教程。0.9.3 在 0.9.2 的清单上再增加三个 MIMO 名字：`exponential_correlation`、`kronecker_channel`、`apply_kronecker`。不改已有名字，也不把版本号升到 1.0.0。
 
-`using CommToolkit` 带入的名字就是下面的清单，与各子模块的 `export` 一致，并都出现在 [API Reference](index.md) 的 `@docs` 块里。0.y 仍可以在以后的次版本**增加**名字。0.9.2 增加的是 `teaching_punctured_mcs_table` 和 `teaching_punctured_amc_thresholds`。删除、改名或改变位置参数和已有返回值的含义，会写进 `CHANGELOG`，这一版没有。
+`using CommToolkit` 带入的名字就是下面的清单，与各子模块的 `export` 一致，并都出现在 [API Reference](index.md) 的 `@docs` 块里。0.y 仍可以在以后的次版本**增加**名字。0.9.2 增加的是 `teaching_punctured_mcs_table` 和 `teaching_punctured_amc_thresholds`。0.9.3 增加的是上面三个 MIMO 名字。删除、改名或改变位置参数和已有返回值的含义，会写进 `CHANGELOG`，这一版没有。
 
 未导出的名字不是契约。这包括下划线开头的内部函数，以及子模块里的常数（例如 `Coding.CONV_G1`、`Coding._rsc_encode`）。子模块可以写成 `CommToolkit.Modulation`，但 `using CommToolkit` 不把子模块名字本身带进当前作用域。
 
@@ -189,7 +189,10 @@
 ### MIMO
 
 - `mimo_channel`
+- `exponential_correlation`
+- `kronecker_channel`
 - `apply_mimo`
+- `apply_kronecker`
 - `ml_detect`
 - `zf_detect`
 - `mmse_detect`

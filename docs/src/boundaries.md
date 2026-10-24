@@ -22,7 +22,7 @@ BICM 用现有星座和现有译码器做教学迭代。没有 NR 速率匹配�
 
 `jakes_fading` 是另一条平坦过程。谱是 Clarke 的 U 形，实现是 DFT 格子上对 ``S(f)`` 积分后再做 `ifft`，不是 Jakes 1974 的正弦和，也不是频率选择性抽头，没有接到 `TDLChannel`。
 
-单载波 `apply_fir` 的抽头由调用者给定，不随时间变化，也不是 38.901 的抽头剖面。MIMO 信道是 i.i.d. 瑞利矩阵，不是空间相关的 Kronecker 模型。
+单载波 `apply_fir` 的抽头由调用者给定，不随时间变化，也不是 38.901 的抽头剖面。`mimo_channel` 仍是 i.i.d. 瑞利矩阵。`kronecker_channel` 是平坦 Kronecker 空间相关：相关矩阵由调用者给定，或由 Loyka 指数模型 `exponential_correlation` 生成。它不是 Weichselberger 的两端联合耦合，也不是 TR 38.901 的 CDL 或 UMi。没有离开角或到达角，没有簇，也没有天线方向图。
 
 ## 不是生产级同步或调度器
 
