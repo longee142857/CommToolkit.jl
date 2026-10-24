@@ -1,5 +1,15 @@
 # 变更记录
 
+## 0.9.1
+
+工程冻结这一刀：公开接口当成契约写下来，验证对照收成一张表，README 改成导航。不是新算法，不改已有函数的位置参数和返回值，也不升到 1.0.0。0.9.0 已经把 BICM-ID 收进 0.9，这一版按补丁记为 0.9.1，而不是 0.10.0。
+
+- 稳定面：`docs/src/api.md` 列出 `using CommToolkit` 带入的全部名字，按子模块分组。`test/contract.jl` 要求这份清单等于 `names(CommToolkit)`，并且各子模块 `export` 的并集只多一个名字。核对结果：没有漏导出，也没有改名。`CommToolkit.modulation` 仍不导出，和 0.9.0 的 README 相同。
+- 验证：`docs/src/validation.md`。每一行是模块、量、闭式或参照、测试文件、演示。公式只引用 `test/reference.jl` 和测试文件头里已经写明的文献，不新造表达式。`test/` 下每个 `*.jl` 都在这一页出现。
+- 边界：`docs/src/boundaries.md`。不是 3GPP NR / LTE 物理层，不是 O-RAN，不是 TR 38.901 的几何 CDL，不是生产级同步或调度器。`TDLChannel` 的文档字符串补上同一句：静态抽头，不是 38.901 的 TDL-A/B/C/D/E，也不是 CDL。
+- 导航：README 保留安装、四条曲线的图和源码布局。长公式改到验证页，参数级限制改到 `docs/src/limitations.md`，正文与 0.9.0 的「已知限制」相同。
+- 文档站：`docs/make.jl` 把边界、公开接口、验证、已知限制放进 Documenter 侧栏。API 参考仍由 docstring 生成。
+
 ## 0.9.0
 
 比特交织编码调制的迭代解调 / 译码（BICM-ID）。不是 5G NR BICM，没有 EXIT 图，没有接到 MCS / HARQ，也没有动 Jakes、同步或路线 C。P2 的这一块到此收口，所以记为 0.9.0，而不是 0.8.6，也不升到 1.0。已有函数的位置参数和返回值不变。

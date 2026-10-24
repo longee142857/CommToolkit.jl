@@ -31,6 +31,10 @@ makedocs(;
     ),
     pages = [
         "API Reference" => "index.md",
+        "边界" => "boundaries.md",
+        "公开接口" => "api.md",
+        "验证" => "validation.md",
+        "已知限制" => "limitations.md",
     ],
     checkdocs = :exports,
     doctest = false,
