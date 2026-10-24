@@ -1,5 +1,19 @@
 # 变更记录
 
+## 1.0.0
+
+公开接口按 SemVer 冻成 1.0。这一版不增加算法，不改已有函数的位置参数和返回值，也不改 `docs/src/api.md` 里已经列出的名字。`using CommToolkit` 带入的名字就是稳定面。删除、改名，或改变位置参数和已有返回值的含义，必须升主版本号，并写进本文件。1.x 可以增加名字；增加本身不升主版本。
+
+收进的是已经落地的三块，不在这一版重做：
+
+- 0.9.1 工程契约：`docs/src/api.md` 的导出清单、`test/contract.jl`、验证矩阵、边界页。README 是导航。
+- 0.9.2 删余码率与 BICM 接入 MCS / Chase。五档表、默认 `receiver=:viterbi` 和删余表都不变。重传仍是同一个删余字。
+- 0.9.3 平坦 Kronecker 空间相关。`mimo_channel` 与 ML / ZF / MMSE / SIC 的位置参数、返回值不变。不是 Weichselberger，也不是 TR 38.901 的 CDL 或 UMi。
+
+范围内的是教学 MCS / HARQ（删余和 BICM 路径）以及平坦 Kronecker MIMO。有意留在 1.0 之外：短 Reed–Solomon（代数码只有 BCH(15,7)）、EXIT 图、TR 38.901 的 CDL、路线 C 的多用户 xApp、NR LDPC。不是 NR，不是 O-RAN，也不是生产协议栈。
+
+- 版本：`Project.toml` 为 `1.0.0`。`test/runtests.jl` 与 `test/contract.jl` 都要求 `pkgversion(CommToolkit) == v"1.0.0"`。Documenter 侧栏和 `objects.inv` 清单版本都取 `pkgversion`，即 `1.0.0`。
+
 ## 0.9.3
 
 平坦 Kronecker 空间相关 MIMO。不是 Weichselberger 的两端联合耦合，不是 TR 38.901 的 CDL 或 UMi，没有多普勒，也没有接到 OFDM 或 MCS / HARQ 上。`mimo_channel` 和 ML / ZF / MMSE / SIC 的位置参数、返回值都不变。0.9.2 已经把删余码率和 BICM 接进 MCS / Chase，这一版不动那条路径。记为 0.9.3，不升到 1.0.0，也不记成 0.10.0。
