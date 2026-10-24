@@ -3,24 +3,34 @@
 
 Link-level teaching loop: CRC-16, a small discrete MCS table, Chase combining, and threshold or outer-loop MCS selection on AWGN.
 
-This is not a 3GPP NR/LTE stack. There is no CQI table, rate matching, HARQ process number, timeline, scheduler, power control, or multi-user model.
+Convolutional rows may use the mother rate 1/2 or the periodic punctured rates 2/3 and 3/4. A second receiver repeats the same symbols and decodes them with bit-interleaved coded modulation. Retransmissions are still Chase combining of one punctured word, not incremental redundancy.
+
+This is not a 3GPP NR/LTE stack. There is no CQI table, NR rate matching, HARQ process number, timeline, scheduler, power control, or multi-user model.
 """
 module Link
 
 using ..Modulation: ModulationScheme, BPSK, QPSK, QAM, modulate, demodulate,
     demodulate_soft, bits_per_symbol
 using ..Channel: awgn
-using ..Coding: conv_encode, viterbi_decode, LDPCCode, ldpc_encode, ldpc_decode, array_ldpc
+using ..Coding: conv_encode, viterbi_decode, LDPCCode, ldpc_encode, ldpc_decode, array_ldpc,
+    puncture, depuncture, puncture_mask
+using ..BICM: bicm_map, bicm_decode
 using ..Metrics: snr_db_to_linear
 
 export CRC16_CCITT_POLY, crc16_ccitt, crc_append, crc_check
-export MCS, mcs_convolutional, mcs_ldpc, teaching_mcs_table, spectral_efficiency
-export ThresholdAMC, OuterLoopAMC, select_mcs, observe_acknack!, teaching_amc_thresholds
+export MCS, mcs_convolutional, mcs_ldpc, teaching_mcs_table, teaching_punctured_mcs_table,
+    spectral_efficiency
+export ThresholdAMC, OuterLoopAMC, select_mcs, observe_acknack!, teaching_amc_thresholds,
+    teaching_punctured_amc_thresholds
 export estimate_esn0_db, LinkReport, simulate_link
 
 # Systematic CRC-16. A positive noiseless LLR stands in for Es/N0 = +∞, because
 # demodulate_soft rejects a zero noise variance. The sign is the hard bit.
 const _NOISELESS_LLR = 50.0
+
+# bicm_demap rejects σ² = 0. Es/N0 = +∞ on the BICM receiver uses this stand-in,
+# the same order of magnitude as the noiseless BICM checks. It is not a measured noise.
+const _BICM_INF_NOISE = 1e-6
 
 @doc raw"""
     CRC16_CCITT_POLY
@@ -103,12 +113,15 @@ One teaching modulation-and-coding entry. Not an NR MCS row.
 - `family`: `:convolutional` (the terminated ``K=3`` code) or `:ldpc`.
 - `payload_bits`: information bits carried in one transport block, before the CRC.
 - `crc_bits`: 16. The encoder input is `payload_bits + crc_bits`.
-- `n_encoder_in`, `n_coded`: encoder input and coded-bit length. The convolutional tail is included.
+- `n_encoder_in`: encoder input length. The convolutional tail is not part of this word.
+- `n_coded`: bits actually modulated. For a punctured convolutional row this is the length after [`puncture`](@ref), not the mother length.
 - `n_symbols`: `n_coded / bits_per_symbol(scheme)`.
 - `spectral_efficiency`: `payload_bits / n_symbols`, information bits per symbol on one transmission. CRC bits and the convolutional tail are overhead, not information.
 - `ldpc`: the code when `family === :ldpc`, otherwise `nothing`.
+- `rate`: `1//2`, `2//3`, or `3//4` for a convolutional row. `nothing` for LDPC. `1//2` is the unpunctured mother code.
+- `n_mother`: coded length before puncturing. Equal to `n_coded` for LDPC and for rate 1/2.
 
-Build entries with [`mcs_convolutional`](@ref) or [`mcs_ldpc`](@ref). The fixed list is [`teaching_mcs_table`](@ref).
+Build entries with [`mcs_convolutional`](@ref) or [`mcs_ldpc`](@ref). The unpunctured list is [`teaching_mcs_table`](@ref). The rate list is [`teaching_punctured_mcs_table`](@ref).
 """
 struct MCS
     name::String
@@ -121,9 +134,12 @@ struct MCS
     n_symbols::Int
     spectral_efficiency::Float64
     ldpc::Union{Nothing,LDPCCode}
+    rate::Union{Nothing,Rational{Int}}
+    n_mother::Int
 
     function MCS(name::AbstractString, scheme::ModulationScheme, family::Symbol,
-                 payload_bits::Int, n_coded::Int, ldpc::Union{Nothing,LDPCCode})
+                 payload_bits::Int, n_coded::Int, ldpc::Union{Nothing,LDPCCode};
+                 rate::Union{Nothing,Rational{Int}}=nothing, n_mother::Int=-1)
         payload_bits >= 1 || throw(ArgumentError(
             "payload_bits must be ≥ 1, got $payload_bits",
         ))
@@ -132,17 +148,44 @@ struct MCS
         ))
         if family === :ldpc
             ldpc isa LDPCCode || throw(ArgumentError("an LDPC MCS needs an LDPCCode"))
+            rate === nothing || throw(ArgumentError(
+                "an LDPC MCS has no convolutional puncture rate",
+            ))
             n_coded == ldpc.n || throw(ArgumentError(
                 "n_coded must equal the LDPC block length $(ldpc.n)",
             ))
             payload_bits + 16 == ldpc.k || throw(ArgumentError(
                 "payload plus CRC-16 must fill the LDPC information word, got $(payload_bits + 16) and k=$(ldpc.k)",
             ))
+            if n_mother != -1 && n_mother != n_coded
+                throw(ArgumentError(
+                    "LDPC mother length must equal the block length $n_coded, got $n_mother",
+                ))
+            end
+            n_mother = n_coded
         else
             ldpc === nothing || throw(ArgumentError("a convolutional MCS has no LDPC code"))
-            expected = length(conv_encode(zeros(Int, payload_bits + 16)))
-            n_coded == expected || throw(ArgumentError(
-                "convolutional coded length must be $expected, got $n_coded",
+            if rate === nothing
+                rate = 1//2
+            end
+            (rate == 1//2 || rate == 2//3 || rate == 3//4) || throw(ArgumentError(
+                "convolutional rate must be 1//2, 2//3, or 3//4, got $rate",
+            ))
+            mother_bits = conv_encode(zeros(Int, payload_bits + 16))
+            expected_mother = length(mother_bits)
+            if n_mother == -1
+                n_mother = expected_mother
+            end
+            n_mother == expected_mother || throw(ArgumentError(
+                "convolutional mother length must be $expected_mother, got $n_mother",
+            ))
+            period = length(puncture_mask(rate))
+            n_mother % period == 0 || throw(ArgumentError(
+                "mother length $n_mother is not a multiple of the $rate puncture period $period",
+            ))
+            expected_tx = rate == 1//2 ? n_mother : length(puncture(mother_bits, rate))
+            n_coded == expected_tx || throw(ArgumentError(
+                "convolutional transmitted length must be $expected_tx, got $n_coded",
             ))
         end
         bps = bits_per_symbol(scheme)
@@ -155,12 +198,16 @@ struct MCS
         crc_bits = 16
         n_in = payload_bits + crc_bits
         return new(String(name), scheme, family, payload_bits, crc_bits, n_in,
-                   n_coded, n_sym, se, ldpc)
+                   n_coded, n_sym, se, ldpc, rate, n_mother)
     end
 end
 
 function Base.show(io::IO, mcs::MCS)
-    print(io, "MCS(", mcs.name, ", SE=", round(mcs.spectral_efficiency; digits=4), ")")
+    print(io, "MCS(", mcs.name, ", SE=", round(mcs.spectral_efficiency; digits=4))
+    if mcs.rate !== nothing
+        print(io, ", rate=", mcs.rate)
+    end
+    print(io, ")")
     return nothing
 end
 
@@ -174,18 +221,28 @@ function spectral_efficiency(mcs::MCS)
 end
 
 @doc raw"""
-    mcs_convolutional(name, scheme::ModulationScheme, payload_bits::Integer) -> MCS
+    mcs_convolutional(name, scheme::ModulationScheme, payload_bits::Integer;
+                      rate::Real=1//2) -> MCS
 
-Terminated ``K = 3``, rate-1/2 convolutional MCS. The encoder input is `payload_bits` plus 16 CRC bits. [`conv_encode`](@ref) adds two zero tail bits, so the coded length is ``2(\texttt{payload\_bits} + 18)``. That length must be divisible by the number of bits per symbol.
+Terminated ``K = 3`` convolutional MCS. The encoder input is `payload_bits` plus 16 CRC bits. [`conv_encode`](@ref) adds two zero tail bits, so the mother length is ``2(\texttt{payload\_bits} + 18)``.
 
-The mother rate is ``1/2``. The spectral efficiency is lower, because the CRC and the tail are not payload.
+`rate` is `1//2` (default, nothing deleted), `2//3`, or `3//4`. The mask is [`puncture_mask`](@ref), applied to the mother stream with the tail included. The mother length must be a multiple of the mask period, so an MCS row has no partial period. The transmitted length must be divisible by the number of bits per symbol. A floating-point rate is rejected.
+
+The spectral efficiency is payload bits per transmitted symbol. It is lower than `rate` times the bits per symbol, because the CRC and the tail are not payload. This is not an NR MCS index and not incremental redundancy.
 """
-function mcs_convolutional(name::AbstractString, scheme::ModulationScheme, payload_bits::Integer)
+function mcs_convolutional(name::AbstractString, scheme::ModulationScheme, payload_bits::Integer;
+                           rate::Real=1//2)
     payload_bits = Int(payload_bits)
     payload_bits >= 1 || throw(ArgumentError("payload_bits must be ≥ 1, got $payload_bits"))
+    rate isa Rational || throw(ArgumentError(
+        "rate must be 1//2, 2//3, or 3//4, got $(repr(rate))",
+    ))
+    rate = Rational{Int}(numerator(rate), denominator(rate))
     n_in = payload_bits + 16
-    n_coded = length(conv_encode(zeros(Int, n_in)))
-    return MCS(name, scheme, :convolutional, payload_bits, n_coded, nothing)
+    mother = conv_encode(zeros(Int, n_in))
+    n_coded = rate == 1//2 ? length(mother) : length(puncture(mother, rate))
+    return MCS(name, scheme, :convolutional, payload_bits, n_coded, nothing;
+               rate=rate, n_mother=length(mother))
 end
 
 @doc raw"""
@@ -247,6 +304,50 @@ function teaching_mcs_table()
         _TEACHING_TABLE[] = _build_teaching_table()
     end
     return copy(_TEACHING_TABLE[])
+end
+
+# Payload 54. Mother length 2*(54+16+2) = 144, a multiple of the 1/2, 2/3, and 3/4 periods.
+const _PUNCTURED_PAYLOAD = 54
+const _PUNCTURED_TABLE = Ref{Union{Nothing,Vector{MCS}}}(nothing)
+
+function _build_punctured_table()
+    p = _PUNCTURED_PAYLOAD
+    table = MCS[
+        mcs_convolutional("BPSK-1/2", BPSK(), p; rate=1//2),
+        mcs_convolutional("QPSK-1/2", QPSK(), p; rate=1//2),
+        mcs_convolutional("QPSK-2/3", QPSK(), p; rate=2//3),
+        mcs_convolutional("QPSK-3/4", QPSK(), p; rate=3//4),
+        mcs_convolutional("16QAM-1/2", QAM(16), p; rate=1//2),
+    ]
+    for i in 2:length(table)
+        table[i].spectral_efficiency > table[i - 1].spectral_efficiency ||
+            error("internal: punctured MCS table is not strictly increasing in SE")
+    end
+    return table
+end
+
+@doc raw"""
+    teaching_punctured_mcs_table() -> Vector{MCS}
+
+Five convolutional MCS rows on one payload, ordered by increasing spectral efficiency. Not an NR CQI/MCS table, and not a replacement for [`teaching_mcs_table`](@ref).
+
+The payload is 54 bits. The mother word is ``2(54+16+2) = 144`` bits, a multiple of every [`puncture_mask`](@ref) period, tail included. Rates 2/3 and 3/4 use those masks. Rate 1/2 deletes nothing.
+
+| Name | Modulation | Rate | Payload | Transmitted bits | Symbols | SE (bit/symbol) |
+|---|---|---|---|---|---|---|
+| BPSK-1/2 | BPSK | 1/2 | 54 | 144 | 144 | ``54/144`` |
+| QPSK-1/2 | QPSK | 1/2 | 54 | 144 | 72 | ``54/72`` |
+| QPSK-2/3 | QPSK | 2/3 | 54 | 108 | 54 | ``54/54`` |
+| QPSK-3/4 | QPSK | 3/4 | 54 | 96 | 48 | ``54/48`` |
+| 16QAM-1/2 | 16-QAM | 1/2 | 54 | 144 | 36 | ``54/36`` |
+
+SE counts payload bits only. Every row pays 16 CRC bits and two tail bits. There is no LDPC row, so [`simulate_link`](@ref) can take `receiver=:bicm` on this whole list. Switching thresholds are [`teaching_punctured_amc_thresholds`](@ref). Those thresholds do not apply to [`teaching_mcs_table`](@ref), and [`teaching_amc_thresholds`](@ref) does not apply here.
+"""
+function teaching_punctured_mcs_table()
+    if _PUNCTURED_TABLE[] === nothing
+        _PUNCTURED_TABLE[] = _build_punctured_table()
+    end
+    return copy(_PUNCTURED_TABLE[])
 end
 
 @doc raw"""
@@ -400,6 +501,20 @@ function teaching_amc_thresholds()
 end
 
 @doc raw"""
+    teaching_punctured_amc_thresholds() -> Vector{Float64}
+
+``E_s/N_0`` switching thresholds, in dB, for [`teaching_punctured_mcs_table`](@ref), lowest MCS first.
+
+The first entry is ``-\infty``. Each later entry is the left edge of the integer-dB bins on which that row had the highest fixed-MCS throughput (no HARQ, `receiver = :viterbi`) in a design sweep: Julia 1.10.12, global seed `0x0c0de1162`, 80 transport blocks, integer ``E_s/N_0`` from −2 dB through 16 dB. On that sample the winners were BPSK-1/2 from −2 dB through 1 dB, QPSK-1/2 at 2–3 dB, QPSK-2/3 at 4–5 dB, QPSK-3/4 at 6–7 dB, and 16QAM-1/2 from 8 dB. The closest calls were 1 dB (BPSK 0.370 bit/use against QPSK-1/2 0.338), 5 dB (QPSK-2/3 0.912 against QPSK-3/4 0.900), and 7 dB (QPSK-3/4 1.125 against 16QAM-1/2 1.087). The same seed on Julia 1.13.2 kept every edge except 5 dB, where QPSK-3/4 was ahead by about 0.002 bit/use. Tests therefore use 0 dB, 3 dB, and 10 dB, not those crossings.
+
+These numbers belong to this payload, CRC, puncture mask, and modulation list. They are not [`teaching_amc_thresholds`](@ref), not NR CQI thresholds, and they are not recomputed at run time.
+"""
+function teaching_punctured_amc_thresholds()
+    # Julia 1.10.12, seed 0x0c0de1162, 80 blocks, no HARQ. See the docstring.
+    return [-Inf, 2.0, 4.0, 6.0, 8.0]
+end
+
+@doc raw"""
     estimate_esn0_db(symbols, scheme::ModulationScheme) -> Float64
 
 Second-moment estimate of ``E_s/N_0`` in dB, assuming the unit-energy constellation of `scheme`.
@@ -495,15 +610,20 @@ function _channel_llr(symbols, esn0_db::Float64, scheme::ModulationScheme, appro
 end
 
 function _encode(mcs::MCS, info::Vector{Int})
-    if mcs.family === :convolutional
-        return conv_encode(info)
+    if mcs.family === :ldpc
+        return ldpc_encode(mcs.ldpc, info)
     end
-    return ldpc_encode(mcs.ldpc, info)
+    mother = conv_encode(info)
+    mcs.rate == 1//2 && return mother
+    return puncture(mother, mcs.rate)
 end
 
 function _decode_info(mcs::MCS, llr::Vector{Float64}, max_iter::Int, algorithm::Symbol)
     if mcs.family === :convolutional
-        return viterbi_decode(llr)
+        # Rate 1/2 keeps the LLR vector that the unpunctured loop already summed.
+        mother_llr = mcs.rate == 1//2 ? llr :
+                     depuncture(llr, mcs.rate, mcs.n_mother; fill=0.0)
+        return viterbi_decode(mother_llr)
     end
     return ldpc_decode(mcs.ldpc, llr; algorithm=algorithm, max_iter=max_iter)
 end
@@ -540,7 +660,11 @@ end
 One AWGN transport-block loop.
 
 # Chain
-Payload bits, CRC-16, encode, modulate, AWGN, soft demodulation, decode, CRC. A CRC failure at `max_tx = 1` drops the block. With `max_tx > 1` the same coded symbols are sent again and the per-bit LLRs are added (Chase combining) before another decode. The first CRC success stops the repeats. A block that still fails is discarded: its payload does not count as delivered.
+Payload bits, CRC-16, encode, optional convolutional puncturing, modulate, AWGN, demodulate, decode, CRC. A CRC failure at `max_tx = 1` drops the block. With `max_tx > 1` the same coded symbols are sent again. The first CRC success stops the repeats. A block that still fails is discarded: its payload does not count as delivered.
+
+`receiver = :viterbi` (default) soft-demodulates with [`demodulate_soft`](@ref), sums those bit LLRs, writes LLR 0 on punctured mother bits, and runs soft-input Viterbi. LDPC rows use [`ldpc_decode`](@ref) and are not punctured.
+
+`receiver = :bicm` maps with [`bicm_map`](@ref) and decodes with [`bicm_decode`](@ref) (`decoder = :bcjr`). Order is encode, puncture, block-interleave, modulate. The same symbols are repeated. Observations are averaged and the noise variance passed to the demapper is divided by the number of transmissions so far, which is maximum-likelihood combining of identical AWGN symbols. Deleted mother bits are LLR 0 inside the log-MAP decoder. This receiver accepts only convolutional rows. It is not incremental redundancy: a retransmission does not send the bits the puncture mask removed.
 
 # Arguments
 - `esn0_db`: ``E_s/N_0`` in dB, with ``E_s = 1``. Finite or ``+\infty``. The call into [`awgn`](@ref) is `awgn(symbols, esn0_db; energy_per_bit = 1)`, so
@@ -556,25 +680,41 @@ Payload bits, CRC-16, encode, modulate, AWGN, soft demodulation, decode, CRC. A 
 - `table`: MCS list, default [`teaching_mcs_table`](@ref).
 - `mcs`: 1-based row to force. `nothing` (default) lets `policy` choose.
 - `policy`: [`ThresholdAMC`](@ref) or [`OuterLoopAMC`](@ref). The default is `ThresholdAMC(teaching_amc_thresholds())`, which must match `table`. Ignored when `mcs` is set, and then an outer-loop offset is left unchanged.
-- `max_tx`: transmissions of one block, including the first. `1` disables HARQ. Chase combining is the only HARQ mode: incremental redundancy would need puncturing, which this loop does not do.
-- `approx`: `:exact` (default) or `:maxlog`, forwarded to [`demodulate_soft`](@ref). On BPSK and Gray QPSK the two agree.
-- `ldpc_max_iter`, `ldpc_algorithm`: forwarded to [`ldpc_decode`](@ref). Convolutional rows always use soft-input Viterbi.
+- `max_tx`: transmissions of one block, including the first. `1` disables HARQ. The only HARQ mode is Chase combining of the same transmitted word. Puncturing changes that word's length; it does not produce a new redundancy version on the retransmission.
+- `approx`: `:exact` (default) or `:maxlog`, forwarded to [`demodulate_soft`](@ref) or to [`bicm_decode`](@ref). On BPSK and Gray QPSK the two agree when the demapper prior is zero.
+- `ldpc_max_iter`, `ldpc_algorithm`: forwarded to [`ldpc_decode`](@ref). Ignored by the BICM receiver, which uses log-MAP on the convolutional trellis.
+- `receiver`: `:viterbi` (default) or `:bicm`. See the chain above. `:bicm` on an LDPC row raises `ArgumentError`. If `mcs` is set, only that row is checked; otherwise every row of `table` is checked, because the policy may select any of them.
+- `bicm_iterations`: demapper–decoder passes for `:bicm`, from 1 to 32. The default 1 is one demapper pass and no feedback. It is not the default of [`bicm_decode`](@ref).
+- `bicm_n_rows`: rectangular interleaver depth on the punctured bits. `0` leaves encoder order. The transmitted length must be divisible by this depth. Passed to both the mapper and the decoder.
+- `bicm_labels`: constellation labels for `:bicm`, or `nothing` for Gray. [`CommToolkit.BICM.bicm_psk8_id_labels`](@ref) is the 8-PSK set-partitioning map. The Viterbi receiver always uses Gray [`modulate`](@ref) / [`demodulate_soft`](@ref) and ignores this keyword.
+- `bicm_llr_clip`: positive finite cap on coded-bit extrinsic LLRs inside `:bicm`. Default 50.
 - `channel_quality`: `:genie` passes `esn0_db` to the policy. `:moment` passes a sliding mean of [`estimate_esn0_db`](@ref) measured on the **previous** block's first transmission (causal). The first block uses `initial_esn0_db`, or `esn0_db` when that keyword is `nothing`. Passing `initial_esn0_db` together with `:genie` is an error.
 - `snr_window`: number of past moment estimates averaged in linear ``E_s/N_0``. Used only for `:moment`.
+
+The BICM keywords must stay at their defaults when `receiver` is `:viterbi`. ``E_s/N_0 = +\infty`` has ``\sigma^2 = 0``, which [`CommToolkit.BICM.bicm_demap`](@ref) rejects, so the BICM receiver substitutes ``\sigma^2 = 10^{-6}`` (divided by the number of combined transmissions). That stand-in is only the noiseless path.
 
 Transmit energy stays ``E_s = 1``. A power-control loop would scale the symbols before `awgn`; this teaching link does not.
 
 # Combining
-Attempt ``t`` observes the same coded bits in independent noise. Bit LLRs are summed,
+`receiver = :viterbi`: attempt ``t`` observes the same transmitted bits in independent noise. Bit LLRs of those bits are summed,
 
 ```math
 L_j^{(r)} = \sum_{t=1}^{r} L_j\!\left(y_j^{(t)}\right).
 ```
 
-For a true AWGN bit LLR this is maximum-likelihood code combining of identical packets (Chase, IEEE Trans. Commun., 33(5):385–393, 1985). BPSK and Gray QPSK LLRs are linear in the observation, so the sum matches symbol-level MRC. Square-QAM LLRs are not linear; the sum is the bit-metric Chase receiver, not joint ML over the repeated constellation.
+Punctured mother positions stay at LLR 0; they are not observations. For a true AWGN bit LLR the sum is maximum-likelihood code combining of identical packets (Chase, IEEE Trans. Commun., 33(5):385–393, 1985). BPSK and Gray QPSK LLRs are linear in the observation, so the sum matches symbol-level MRC. Square-QAM LLRs are not linear; the sum is the bit-metric Chase receiver, not joint ML over the repeated constellation.
+
+`receiver = :bicm`: the same symbols are averaged,
+
+```math
+\bar{y}_j^{(r)} = \frac{1}{r}\sum_{t=1}^{r} y_j^{(t)},
+\qquad \sigma^2 \leftarrow \sigma^2 / r,
+```
+
+and [`bicm_decode`](@ref) is run on ``\bar{y}^{(r)}``. For identical symbols in AWGN this average is a sufficient statistic. It is not bit-metric Chase, and it is not incremental redundancy.
 
 # References
-CRC: ITU-T V.41 polynomial, systematic register as in [`crc16_ccitt`](@ref). Convolutional code and Viterbi: Proakis and Salehi, 5th ed., §8.2. LDPC: the normalised min-sum of [`ldpc_decode`](@ref). Switching thresholds: Goldsmith, 2005, §9.3. Outer-loop step ratio: Sampath, Kumar, and Holtzman, Proc. IEEE VTC, 1997, pp. 929–933.
+CRC: ITU-T V.41 polynomial, systematic register as in [`crc16_ccitt`](@ref). Convolutional code and Viterbi: Proakis and Salehi, 5th ed., §8.2. Puncture masks: Yasuda, Kashiki, and Hirata, IEEE Trans. Commun., 32(3):315–319, 1984. BICM-ID: Li, Chindapol, and Ritcey, IEEE Trans. Commun., 50(8):1250–1257, 2002; ten Brink, Speidel, and Yan, Proc. IEEE GLOBECOM, 1998. LDPC: the normalised min-sum of [`ldpc_decode`](@ref). Switching thresholds: Goldsmith, 2005, §9.3. Outer-loop step ratio: Sampath, Kumar, and Holtzman, Proc. IEEE VTC, 1997, pp. 929–933.
 """
 function simulate_link(esn0_db::Real, n_blocks::Integer;
                        table::AbstractVector{MCS}=teaching_mcs_table(),
@@ -586,7 +726,12 @@ function simulate_link(esn0_db::Real, n_blocks::Integer;
                        ldpc_algorithm::Symbol=:normalized_min_sum,
                        channel_quality::Symbol=:genie,
                        initial_esn0_db::Union{Nothing,Real}=nothing,
-                       snr_window::Integer=1)
+                       snr_window::Integer=1,
+                       receiver::Symbol=:viterbi,
+                       bicm_iterations::Integer=1,
+                       bicm_n_rows::Integer=0,
+                       bicm_labels=nothing,
+                       bicm_llr_clip::Real=50)
     snr = float(esn0_db)
     (snr == Inf || isfinite(snr)) || throw(ArgumentError(
         "Es/N0 must be finite or +Inf, got $esn0_db",
@@ -611,6 +756,31 @@ function simulate_link(esn0_db::Real, n_blocks::Integer;
     ))
     snr_window = Int(snr_window)
     snr_window >= 1 || throw(ArgumentError("snr_window must be ≥ 1, got $snr_window"))
+    receiver === :viterbi || receiver === :bicm || throw(ArgumentError(
+        "receiver must be :viterbi or :bicm, got $(repr(receiver))",
+    ))
+    bicm_iterations = Int(bicm_iterations)
+    bicm_n_rows = Int(bicm_n_rows)
+    bicm_llr_clip = float(bicm_llr_clip)
+    if receiver === :viterbi
+        if bicm_iterations != 1 || bicm_n_rows != 0 || bicm_labels !== nothing ||
+           bicm_llr_clip != 50
+            throw(ArgumentError(
+                "bicm_iterations, bicm_n_rows, bicm_labels, and bicm_llr_clip " *
+                "apply only when receiver=:bicm",
+            ))
+        end
+    else
+        (1 <= bicm_iterations <= 32) || throw(ArgumentError(
+            "bicm_iterations must be from 1 to 32, got $bicm_iterations",
+        ))
+        bicm_n_rows >= 0 || throw(ArgumentError(
+            "bicm_n_rows must be ≥ 0, got $bicm_n_rows",
+        ))
+        (isfinite(bicm_llr_clip) && bicm_llr_clip > 0) || throw(ArgumentError(
+            "bicm_llr_clip must be finite and positive, got $bicm_llr_clip",
+        ))
+    end
     if mcs === nothing
         if policy === nothing
             policy = ThresholdAMC(teaching_amc_thresholds())
@@ -623,6 +793,21 @@ function simulate_link(esn0_db::Real, n_blocks::Integer;
         1 <= mcs <= length(table) || throw(ArgumentError(
             "mcs index must lie in 1:$(length(table)), got $mcs",
         ))
+    end
+    if receiver === :bicm
+        chosen = mcs === nothing ? table : (table[mcs],)
+        for row in chosen
+            row.family === :convolutional || throw(ArgumentError(
+                "receiver=:bicm decodes the convolutional mother code; " *
+                "$(row.name) is $(row.family)",
+            ))
+            if bicm_n_rows > 0 && row.n_coded % bicm_n_rows != 0
+                throw(ArgumentError(
+                    "transmitted length $(row.n_coded) of $(row.name) is not divisible " *
+                    "by bicm_n_rows=$bicm_n_rows",
+                ))
+            end
+        end
     end
     if channel_quality === :genie && initial_esn0_db !== nothing
         throw(ArgumentError("initial_esn0_db applies only when channel_quality is :moment"))
@@ -666,27 +851,56 @@ function simulate_link(esn0_db::Real, n_blocks::Integer;
         mcs_se_sum += row.spectral_efficiency
         payload = rand(0:1, row.payload_bits)
         info = crc_append(payload)
-        coded = _encode(row, info)
-        symbols = modulate(coded, row.scheme)
-        acc = zeros(Float64, row.n_coded)
         decoded = Int[]
         ack = false
         n_tx = 0
-        first_rx = symbols
-        for tx in 1:max_tx
-            n_tx = tx
-            # Es stays 1. Power control is not part of this loop: it would scale
-            # `symbols` before the channel. Incremental redundancy is not part of
-            # it either: a retransmission repeats the same coded bits.
-            rx = awgn(symbols, snr; energy_per_bit=1.0)
-            if tx == 1
-                first_rx = rx
+        if receiver === :bicm
+            # Encode, puncture, interleave, map. A repeat sends that same word.
+            symbols = bicm_map(info, row.scheme; encoder=:conv, n_rows=bicm_n_rows,
+                               labels=bicm_labels, rate=row.rate)
+            acc_sym = zeros(eltype(symbols), length(symbols))
+            first_rx = symbols
+            for tx in 1:max_tx
+                n_tx = tx
+                rx = awgn(symbols, snr; energy_per_bit=1.0)
+                if tx == 1
+                    first_rx = rx
+                end
+                acc_sym .+= rx
+                # Mean of r identical AWGN observations. Variance scales by 1/r.
+                y = acc_sym ./ tx
+                σ2 = (snr == Inf ? _BICM_INF_NOISE : inv(2 * snr_db_to_linear(snr))) / tx
+                result = bicm_decode(y, row.scheme, σ2, row.n_encoder_in;
+                                     decoder=:bcjr, iterations=bicm_iterations,
+                                     n_rows=bicm_n_rows, approx=approx,
+                                     labels=bicm_labels, rate=row.rate,
+                                     llr_clip=bicm_llr_clip)
+                decoded = result.bits
+                if length(decoded) == row.n_encoder_in && crc_check(decoded)
+                    ack = true
+                    break
+                end
             end
-            acc .+= _channel_llr(rx, snr, row.scheme, approx)
-            decoded = _decode_info(row, acc, ldpc_max_iter, ldpc_algorithm)
-            if length(decoded) == row.n_encoder_in && crc_check(decoded)
-                ack = true
-                break
+        else
+            coded = _encode(row, info)
+            symbols = modulate(coded, row.scheme)
+            acc = zeros(Float64, row.n_coded)
+            first_rx = symbols
+            for tx in 1:max_tx
+                n_tx = tx
+                # Es stays 1. Power control is not part of this loop: it would scale
+                # `symbols` before the channel. A retransmission repeats the same
+                # punctured word; it does not send the deleted mother bits.
+                rx = awgn(symbols, snr; energy_per_bit=1.0)
+                if tx == 1
+                    first_rx = rx
+                end
+                acc .+= _channel_llr(rx, snr, row.scheme, approx)
+                decoded = _decode_info(row, acc, ldpc_max_iter, ldpc_algorithm)
+                if length(decoded) == row.n_encoder_in && crc_check(decoded)
+                    ack = true
+                    break
+                end
             end
         end
         if channel_quality === :moment
