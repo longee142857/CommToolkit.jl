@@ -34,7 +34,7 @@ Rt = exponential_correlation(2, 0.5)
 Rr = exponential_correlation(2, 0.4 * cis(0.7))
 N = 4000
 err = moment_error(Rt, Rr, N)
-println("样本矩最大绝对误差（N = $N，理论值 (R_r)[p,r] * (R_t)[s,q]）: $err")
+println("样本矩最大绝对误差（N = $(N)，理论值 (R_r)[p,r] * (R_t)[s,q]）: $err")
 
 function zf_ber(ρ, noise_var, n_vec)
     Rc = exponential_correlation(2, ρ)
@@ -51,7 +51,7 @@ end
 
 noise_var = 0.05
 n_vec = 2000
-println("2×2 BPSK ZF，noise_var = $noise_var，$(2 * n_vec) 比特")
+println("2×2 BPSK ZF，noise_var = $(noise_var)，$(2 * n_vec) 比特")
 println("  ρ = 0   BER = ", zf_ber(0.0, noise_var, n_vec))
 println("  ρ = 0.9 BER = ", zf_ber(0.9, noise_var, n_vec))
 println("i.i.d. 路径仍是 mimo_channel；检测器不按 R_t、R_r 白化。")
