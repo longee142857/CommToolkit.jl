@@ -4,7 +4,7 @@ API reference for the exported interface. This page is not a tutorial.
 
 The stability surface, the validation matrix, and the scope page are written in Chinese, matching the README: [边界](boundaries.md), [公开接口](api.md), [验证矩阵](validation.md), [已知限制](limitations.md).
 
-The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE PHY, it does not implement an O-RAN fronthaul, it does not implement a geometric 3GPP TR 38.901 clustered delay line, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The turbo code is a short memory-2 teaching construction, not a 3GPP turbo code. `bch157_encode` is the binary BCH code of length 15 and dimension 7, not a Reed–Solomon code. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity. Convolutional MCS rows may use the periodic puncture masks; retransmissions still repeat one word. `receiver=:bicm` is a teaching BICM path on those convolutional rows, not NR BICM. `PSK` is coherent Gray ``M``-PSK. `DBPSK` and `DQPSK` are two-symbol differential detectors, not ``\pi/4``-DQPSK. `rice_channel` takes a linear Rice factor. `jakes_fading` is a flat Clarke spectrum on a DFT grid, not a classical Jakes sum of sinusoids. `nakagami_channel` takes the Nakagami parameter `m`. `mrc` is ideal-CSI receive combining, not a MIMO detector.
+The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE PHY, it does not implement an O-RAN fronthaul, it does not implement a geometric 3GPP TR 38.901 clustered delay line, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The turbo code is a short memory-2 teaching construction, not a 3GPP turbo code. `bch157_encode` is the binary BCH code of length 15 and dimension 7, not a Reed–Solomon code. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity. Convolutional MCS rows may use the periodic puncture masks; retransmissions still repeat one word. `receiver=:bicm` is a teaching BICM path on those convolutional rows, not NR BICM. `PSK` is coherent Gray ``M``-PSK. `DBPSK` and `DQPSK` are two-symbol differential detectors, not ``\pi/4``-DQPSK. `rice_channel` takes a linear Rice factor. `jakes_fading` is a flat Clarke spectrum on a DFT grid, not a classical Jakes sum of sinusoids. `nakagami_channel` takes the Nakagami parameter `m`. `mrc` is ideal-CSI receive combining, not a MIMO detector. `kronecker_channel` is one flat Kronecker matrix, not a Weichselberger model and not a TR 38.901 CDL or UMi.
 
 Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `BICM`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, `Scrambling`, `Sync`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it. Gardner, Costas, and Schmidl–Cox in `Sync` are teaching loops with a stated capture range. They do not replace `ofdm_sync`.
 
@@ -198,9 +198,14 @@ ofdm_sync
 
 ## MIMO
 
+`mimo_channel` is i.i.d. Rayleigh. `kronecker_channel` is one flat draw ``H = R_r^{1/2} H_w R_t^{1/2}``. `exponential_correlation` is Loyka's Toeplitz factor. Neither is a Weichselberger coupling model nor a 3GPP TR 38.901 CDL or UMi. Detectors take the realized `H` and are unchanged. `apply_kronecker` draws `H` and then calls `apply_mimo`.
+
 ```@docs
 mimo_channel
+exponential_correlation
+kronecker_channel
 apply_mimo
+apply_kronecker
 ml_detect
 zf_detect
 mmse_detect

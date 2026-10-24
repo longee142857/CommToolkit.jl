@@ -1,5 +1,14 @@
 # 变更记录
 
+## 0.9.3
+
+平坦 Kronecker 空间相关 MIMO。不是 Weichselberger 的两端联合耦合，不是 TR 38.901 的 CDL 或 UMi，没有多普勒，也没有接到 OFDM 或 MCS / HARQ 上。`mimo_channel` 和 ML / ZF / MMSE / SIC 的位置参数、返回值都不变。0.9.2 已经把删余码率和 BICM 接进 MCS / Chase，这一版不动那条路径。记为 0.9.3，不升到 1.0.0，也不记成 0.10.0。
+
+- 信道：`kronecker_channel`。``H = R_r^{1/2} H_w R_t^{1/2}``。``H_w`` 与 `mimo_channel` 是同一套 ``\mathcal{CN}(0,1)``：先全部实部，再全部虚部。``R^{1/2}`` 是厄米半正定平方根。可分离相关是 ``\mathbb{E}[H_{pq} H_{rs}^{*}] = (R_r)_{pr}(R_t)_{sq}``（``p,r`` 为接收天线，``q,s`` 为发射天线）。按列堆叠时协方差是 ``R_t^{\mathsf{T}} \otimes R_r``。这是 Kermoal、Schumacher、Pedersen、Mogensen 与 Frederiksen（IEEE JSAC，20(6):1211–1226，2002）附录里「两个信道系数的相关等于两端天线相关之积」的平方根生成。实相关矩阵上，乘积与 CommPy `MIMOFlatChannel` 的 `sqrtm(R_rx) @ H_w @ sqrtm(R_tx)` 相同；复厄米因子的右乘是厄米平方根本身，不是它的非共轭转置。相关矩阵不重新归一。对角为 1 时，每个元素的平均功率仍是 1。``R - R^{\mathsf{H}}`` 大于 ``\max(1,\|R\|_\infty)`` 的 `1e-8` 倍会被拒绝；更小的负特征值夹到 0。两个整数参数的调用就是 `mimo_channel`。精确单位阵不乘 ``I``，随机数流与 i.i.d. 相同。校验失败发生在抽取之前。
+- 指数相关：`exponential_correlation(n, ρ; spacing=1)`。Loyka，IEEE Commun. Lett.，5(9):369–371，2001。``\rho`` 是单位距离上的相关系数，``|\rho| \le 1``。`spacing` 是相邻阵元间距，用同一套距离单位。``R_{ij} = |\rho|^{|i-j|\,\mathrm{spacing}} \exp(j \arg(\rho)\,(j-i)\,\mathrm{spacing})``，对角为 1。``\rho = 0`` 在任何 `spacing` 下都是单位阵。`spacing = 0` 且 ``|\rho| > 0`` 是全 1 矩阵。不是 ``J_0(2\pi d/\lambda)``。
+- 接入：`apply_kronecker(x, R_tx, R_rx, noise_var)` 先抽 ``H``，再调用 `apply_mimo`，返回 `(y, H)`。ML / ZF / MMSE / SIC 仍直接吃这个 ``H``。`mmse_detect` 仍假设符号不相关、噪声在接收端空间白，不按 ``R_t`` 或 ``R_r`` 白化。
+- 对照：`test/kronecker_mimo.jl`。单位阵和 ``\rho = 0`` 与 `mimo_channel` 逐比特相同。``N = 20000`` 的样本矩对照上面的乘积，绝对误差不超过 0.06。``\rho = 1`` 时发射相关使两列相等、接收相关使两行相等。无噪声时 ML / ZF / MMSE / SIC 恢复符号。``\texttt{noise\_var} = 0.05``、各 8000 个比特，``\rho = 0.95`` 的 ZF 误码率 Clopper–Pearson 区间（``\alpha = 10^{-4}``）整个高于 ``\rho = 0``。没有新的误码闭式。演示 `demos/kronecker_mimo.jl` 不加载 Plots。
+
 ## 0.9.2
 
 把卷积删余和一条 BICM 接收机接到已有的 MCS / Chase 闭环上。不是 NR CQI，不是 NR 速率匹配，不是增量冗余，也没有 EXIT 图。`teaching_mcs_table` 的五档、门限和默认 `receiver=:viterbi` 都不变。已有函数的位置参数和返回值不变。这一版坐在 0.9.1 的公开接口契约上：稳定清单增加两个导出名字，不改名、不删除，也不改已有位置参数和返回值。它把现成的删余和 BICM 接进链路，不新开调制或信道族，所以不升 0.10，也不升 1.0，记为 0.9.2。

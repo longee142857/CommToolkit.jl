@@ -6,7 +6,7 @@
 
 `demos/` 不在 `Pkg.test` 里。`demos/ber_16qam.jl` 画的是高信噪比近似，不是 Cho–Yoon 精确式。`demos/ber_comparison.jl` 只画仿真点，没有闭式曲线。`demos/validation_figure.jl` 的四条曲线是 v0.6 之前的图：AWGN 下的 BPSK、QPSK、16-QAM，以及平坦瑞利下的 BPSK。`demos/link_puncture_bicm.jl` 打印删余表的固定行、自适应和 Chase，以及 8-PSK 的 1 次与 4 次迭代。
 
-统计规则和公式出处也写在 `test/reference.jl` 文件头。下表把每个测试文件都点到：`test/algebraic.jl`、`test/bicm.jl`、`test/contract.jl`、`test/evm.jl`、`test/interleave.jl`、`test/jakes_nakagami.jl`、`test/ldpc.jl`、`test/link.jl`、`test/lms_dfe.jl`、`test/psk_rice_mrc.jl`、`test/pulse_fir.jl`、`test/reference.jl`、`test/runtests.jl`、`test/scrambling.jl`、`test/sova.jl`、`test/sync.jl`、`test/turbo.jl`、`test/waterfill.jl`。
+统计规则和公式出处也写在 `test/reference.jl` 文件头。下表把每个测试文件都点到：`test/algebraic.jl`、`test/bicm.jl`、`test/contract.jl`、`test/evm.jl`、`test/interleave.jl`、`test/jakes_nakagami.jl`、`test/kronecker_mimo.jl`、`test/ldpc.jl`、`test/link.jl`、`test/lms_dfe.jl`、`test/psk_rice_mrc.jl`、`test/pulse_fir.jl`、`test/reference.jl`、`test/runtests.jl`、`test/scrambling.jl`、`test/sova.jl`、`test/sync.jl`、`test/turbo.jl`、`test/waterfill.jl`。
 
 | 模块 | 量 | 闭式或参照 | 测试 | 演示 |
 |---|---|---|---|---|
@@ -42,6 +42,7 @@
 | Pulse，Visualization | 升余弦与根升余弦，匹配滤波后抽样 | 截断脉冲的和与能量。形状见 Proakis 与 Salehi §9.2（`raised_cosine` 的文档字符串）。无多径、无噪声时，根升余弦级联在符号点上贴近原符号。冲激脉冲走 `pulse_shape`、样本率 FIR、`matched_filter`、`downsample_symbols` 之后，ZF 与 `noise_var = 0` 的 MMSE 恢复符号 | `test/runtests.jl`；`test/pulse_fir.jl` | `demos/pulse_fir_link.jl`；`demos/viz_demo.jl` |
 | OFDM | 循环前缀收发、已知 CSI / LS / 逐导频收缩 | 无闭式误码。无噪声时完美恢复。4 dB 与 18 dB 的 Clopper–Pearson 区间互不重叠。定时和小数倍频偏是 van de Beek、Sandell 与 Börjesson，IEEE Trans. Signal Process. 45(7):1800–1805，1997，捕获范围 ``(-1/2, 1/2)`` | `test/runtests.jl` | `demos/ofdm_ber.jl`（仿真曲线，无闭式） |
 | MIMO | i.i.d. 瑞利上的 ZF 硬判决 | 无闭式误码曲线。无噪声时恢复符号。噪声方差 1 与 ``10^{-3}`` 的区间互不重叠。信道条目是 ``\mathcal{CN}(0,1)``，Tse 与 Viswanath §7.1（`mimo_channel` 的文档字符串） | `test/runtests.jl` | `demos/ber_mimo.jl`（仿真曲线，无闭式） |
+| MIMO | 平坦 Kronecker 空间相关 | 无新的误码闭式。``H = R_r^{1/2} H_w R_t^{1/2}``，``\mathbb{E}[H_{pq} H_{rs}^{*}] = (R_r)_{pr}(R_t)_{sq}``。单位阵以及 Loyka ``\rho = 0`` 与 `mimo_channel` 逐元素相同。``N = 20000`` 的样本矩对照该乘积，容差 0.06。``\rho = 1`` 的发射相关使各列相等。无噪声时 ML / ZF / MMSE / SIC 恢复符号。``\texttt{noise\_var} = 0.05`` 时，``\rho = 0.95`` 的 ZF 误码区间高于 ``\rho = 0``。定义在 `kronecker_channel` 的文档字符串：Kermoal 等，IEEE JSAC 20(6)，2002，附录的乘积结构；指数矩阵是 Loyka，IEEE Commun. Lett. 5(9)，2001 | `test/kronecker_mimo.jl` | `demos/kronecker_mimo.jl`（打印相关矩阵、样本矩和两条 ZF 误码，无图） |
 | MIMO | Alamouti 与 SVD 预编码 | 无噪声时恢复。`svd_precoder` 返回右奇异向量，不分配功率 | `test/runtests.jl` | 无 |
 | MIMO | 总功率注水 | Tse 与 Viswanath §7.1.1：``p_i = (\mu - N_0/\lambda_i^2)_+``。功率和等于预算，正功率模式满足同一水位。低信噪比集中到最强模式，高信噪比在正奇异值上接近均匀 | `test/waterfill.jl` | 无 |
 | Scrambling | 加性 LFSR | 对照文档字符串里的线性递推，不是另一份移位实现。具名多项式的周期是 ``2^n-1``。序列不按 ITU-T O.150 取反 | `test/scrambling.jl` | 无 |
@@ -53,7 +54,7 @@
 
 ## 闭式摘录
 
-下列句子与 v0.9.0 的 README 验证段相同，公式仍以 `test/reference.jl` 为准。
+下列句子里，Kronecker 那一条是 0.9.3 加上的，定义在 `kronecker_channel` 的文档字符串，不在 `test/reference.jl`。其余与 v0.9.0 的 README 验证段相同，公式仍以 `test/reference.jl` 为准。
 
 - AWGN 下 BPSK 与 Gray QPSK：``Q(\sqrt{2 E_b/N_0})``。Proakis 与 Salehi，第 5 版，§5.2。
 - 方形 Gray M-QAM 的精确平均误比特率：Cho 与 Yoon，2002，式 (16)。图中 16-QAM 用的是这个精确式，不是高信噪比近似。
@@ -64,6 +65,7 @@
 - L 支路 i.i.d. 瑞利、理想 CSI、相干 BPSK 的 MRC：Proakis 与 Salehi §13.4 的求和式。``\bar\gamma_b`` 是每条支路的平均 ``E_b/N_0``。
 - Clarke/Jakes：滞后相关对照 ``J_0(2\pi f_d \tau)``。理想 CSI 相干 BPSK 的平均仍用瑞利闭式。
 - Nakagami-m、理想 CSI、相干 BPSK：Craig 形式对 Gamma 矩生成函数积分。`m = 1` 退回瑞利。正整数 `m` 等于 `m` 支路瑞利 MRC，每条支路的平均是 ``\bar\gamma_b/m``。`m \to \infty` 在理想 CSI 下退回 AWGN。
+- 平坦 Kronecker：没有新的误码闭式。样本矩对照 ``\mathbb{E}[H_{pq} H_{rs}^{*}] = (R_r)_{pr}(R_t)_{sq}``，定义在 `kronecker_channel` 的文档字符串。单位阵与 ``\rho = 0`` 退回 i.i.d. 瑞利。
 
 ![BPSK、QPSK、16-QAM 在 AWGN 下以及 BPSK 在平坦瑞利下的蒙特卡洛误码率与闭式曲线](assets/ber_validation.png)
 
