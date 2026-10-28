@@ -26,6 +26,9 @@ RTL=(
     rtl/qpsk_slicer.v
     rtl/qam_gray.v
     rtl/qpsk_qam_awgn_ber.v
+    rtl/conv75_encode.v
+    rtl/viterbi_hard75.v
+    rtl/conv_bpsk_awgn_ber.v
 )
 
 run_one() {
@@ -35,7 +38,7 @@ run_one() {
     local vvp="sim/out/${name}.vvp"
     local log="sim/out/${name}.log"
     echo "== ${name} =="
-    iverilog -g2012 -Wall -o "${vvp}" "${RTL[@]}" "${tb}"
+    iverilog -g2012 -Wall -I rtl -o "${vvp}" "${RTL[@]}" "${tb}"
     set +e
     vvp "${vvp}" > "${log}"
     local code=$?
@@ -60,5 +63,7 @@ run_one tb/tb_bpsk_awgn_ber.v
 run_one tb/tb_ax7020_top.v
 run_one tb/tb_qpsk_qam_unit.v
 run_one tb/tb_qpsk_qam_ber.v
+run_one tb/tb_conv75_unit.v
+run_one tb/tb_conv_bpsk_ber.v
 
 echo "全部 PASS。"
