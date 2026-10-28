@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 `default_nettype none
 
 // 教学级实 AWGN 近似。不是 Box–Muller，也不是高斯 ROM。
@@ -93,14 +94,12 @@ module awgn_clt #(
         end
     endgenerate
 
-    reg [11:0] sum_u;
-    integer bi;
-
-    always @* begin
-        sum_u = 12'd0;
-        for (bi = 0; bi < 12; bi = bi + 1)
-            sum_u = sum_u + ubyte[bi];
-    end
+    // 每项先扩到 12 位。12×255 = 3060，加总不会溢出。
+    wire [11:0] sum_u =
+        {4'd0, ubyte[0]}  + {4'd0, ubyte[1]}  + {4'd0, ubyte[2]}  +
+        {4'd0, ubyte[3]}  + {4'd0, ubyte[4]}  + {4'd0, ubyte[5]}  +
+        {4'd0, ubyte[6]}  + {4'd0, ubyte[7]}  + {4'd0, ubyte[8]}  +
+        {4'd0, ubyte[9]}  + {4'd0, ubyte[10]} + {4'd0, ubyte[11]};
 
     wire signed [12:0] centered = $signed({1'b0, sum_u}) - 13'sd1530;
     wire [15:0]        mult     = scale_of(snr_index);

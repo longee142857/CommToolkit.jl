@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 `default_nettype none
 
 // BPSK 映射，概念上对应 modulate(bits, BPSK()) = 1 - 2*bits。

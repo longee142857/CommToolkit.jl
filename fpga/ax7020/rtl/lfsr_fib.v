@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 `default_nettype none
 
 // Fibonacci LFSR。移位约定与 CommToolkit.jl 的 lfsr_sequence 相同：

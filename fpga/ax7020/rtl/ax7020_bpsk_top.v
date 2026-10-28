@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 `default_nettype none
 
 // AX7020 PL 顶层封装。只把教学链路接到板载 50 MHz、两个按键和四只 LED。

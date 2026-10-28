@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 `default_nettype none
 
 // BPSK 硬判决，概念上对应 demodulate：负数判为 1，0 和正数判为 0。

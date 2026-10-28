@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 `default_nettype none
 
 // 一条可综合的教学链路：PRBS → BPSK → 实 AWGN → 硬判决 → 差错计数。
