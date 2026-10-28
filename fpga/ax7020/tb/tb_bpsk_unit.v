@@ -57,12 +57,14 @@ module tb_bpsk_unit;
     );
 
     reg [2:0] snr_index;
+    reg [2:0] bits_per_symbol;
     wire signed [15:0] noise;
-    awgn_clt #(.AMP(1024)) u_awgn (
+    awgn_clt #(.AMP(1024), .SEED_SET(0)) u_awgn (
         .clk(clk),
         .rst(n_rst),
         .en(n_en),
         .snr_index(snr_index),
+        .bits_per_symbol(bits_per_symbol),
         .noise(noise)
     );
 
@@ -91,6 +93,7 @@ module tb_bpsk_unit;
         n_rst = 1'b1;
         n_en = 1'b0;
         snr_index = 3'd0;
+        bits_per_symbol = 3'd1;
 
         #1;
         check(symbol === 16'sd1024, "bit 0 maps to +AMP");
