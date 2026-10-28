@@ -1,21 +1,22 @@
 # AX7020 教学链路
 
-黑金 ALINX **AX7020**（Zynq-7020，器件 **XC7Z020**，常见封装 CLG400）上的 **PL 教学**示例。和 Julia 包 `CommToolkit` 里的 `Modulation` / `Channel` / `Metrics` / `Scrambling` **概念对齐**。定点噪声是 12 个离散均匀数的和，不是 `randn`。**不要把这里的误码率当成和 Julia 浮点仿真 bit-exact，也不要当成已经和闭式公式做过区间验收。** 本目录没有附带定点对照的 Julia 脚本；没做那一步，就不声称数值一致。
+黑金 ALINX **AX7020**（Zynq-7020，器件 **XC7Z020**，常见封装 CLG400）上的 **PL 教学**示例。和 Julia 包 `CommToolkit` 里的 `Modulation` / `Channel` / `Coding` / `Metrics` / `Scrambling` **概念对齐**。定点噪声是 12 个离散均匀数的和，不是 `randn`。**不要把这里的误码率当成和 Julia 浮点仿真 bit-exact，也不要当成已经和闭式公式做过区间验收。** 本目录没有附带定点对照的 Julia 脚本；没做那一步，就不声称数值一致。
 
 | 刀 | 内容 | 状态 |
 | --- | --- | --- |
 | 1 | BPSK + 实 AWGN + BER | 已在 main |
-| 2 | QPSK，以及方形 Gray 16-QAM、64-QAM 的硬映射 / 硬判决 | 当前目录 |
-| 以后 | OFDM、MIMO、信道码、软判决 | 不做 |
+| 2 | QPSK，以及方形 Gray 16-QAM、64-QAM 的硬映射 / 硬判决 | 已在 main |
+| 3 | K=3 (7, 5) 卷积母码 + 硬判决 Viterbi，接到 BPSK | 当前目录 |
+| 以后 | 删余 2/3 与 3/4、软判决、OFDM、MIMO、LDPC/Turbo | 不做 |
 
-刀1 的链路是：PRBS 比特 → BPSK 映射 → 实 AWGN → 硬判决 → 差错计数。刀2 在旁边加复星座，噪声源和差错计数的做法不变。
+刀1 的链路是：PRBS 比特 → BPSK 映射 → 实 AWGN → 硬判决 → 差错计数。刀2 在旁边加复星座，噪声源和差错计数的做法不变。刀3 在 BPSK 前面加上 (7, 5) 编码，后面加上硬 Viterbi，误码改数信息比特。
 
 ## 边界
 
 - 教学级定点，不是量产调制解调器。没有 AGC、成形滤波、定时或载波恢复。
 - 不是 NR，不是 LTE，不是 O-RAN。没有资源栅格、前传、eCPRI 或 xApp。
 - 和 Julia `CommToolkit` 是概念对照，不是数值契约。数据 LFSR 的移位规则可以和 `lfsr_sequence` 对上（见下表）；噪声和 BER 不对上。
-- 刀1 是 **BPSK + 实 AWGN + BER**。刀2 加上 **QPSK** 和方形 Gray **16-QAM / 64-QAM** 的硬判决。仍然不做 OFDM、MIMO、信道编码、交织、均衡、同步或软信息。
+- 刀1 是 **BPSK + 实 AWGN + BER**。刀2 是 **QPSK** 和方形 Gray **16-QAM / 64-QAM** 硬判决。刀3 是终止的 **K=3 (7, 5) 卷积母码**和**硬判决 Viterbi**，串在 BPSK 上。仍然不做删余、软判决、OFDM、MIMO、交织、均衡、同步，也不是 NR LDPC 或 Turbo。
 - 引脚是 AX7020 手册里的常见占位。**没有在这块板上实测过**，综合和时序也没有在本仓库里跑过。
 
 GitHub Actions 仍只测 Julia 包（`src/`、`ext/`）。这里不进那个覆盖率，CI 也不跑 Vivado 或 Icarus。
@@ -32,6 +33,8 @@ GitHub Actions 仍只测 Julia 包（`src/`、`ext/`）。这里不进那个覆�
 | 噪声用的 \(x^{31}+x^{28}+1\) | `prbs_polynomial(31)` 的连接多项式 | 只借用多项式。12 路并行、每次取 8 位，不是 `lfsr_sequence` 的逐比特输出。 |
 | `qpsk_mapper` / `qpsk_slicer` | `QPSK()`，`modulate` / `demodulate` | 比特顺序和符号判决相同：b0 看实部，b1 看虚部，负数判 1。幅度是整数 724，不是 \((\pm 1 \pm j)/\sqrt{2}\)。不是 `QAM(4)`，也不是 `PSK(4)`。 |
 | `qam_mapper` / `qam_slicer` | `QAM(16)`、`QAM(64)` | MSB 先入。前一半比特是 I 路 Gray，后一半是 Q 路。电平取最近整数单位。门限上的平局归右格，和 `findmin` 的平局规则不一定相同。 |
+| `conv75_encode` | `conv_encode` | 生成多项式 \(1+D+D^2\)、\(1+D^2\)，输出顺序 \((g_1,g_2)\)，再补两个 0 尾比特。测试台锁了固定向量。 |
+| `viterbi_hard75` | 整数 `viterbi_decode` | 汉明支路度量，严格小于才替换，从最小度量状态回溯，平局取最小状态号。去掉尾比特。无噪声和给定硬比特可以对上。不是 LLR 那条，没有删除符号。 |
 
 想自己做定点对照时，按下一节的 AMP、均值 1530、算术右移（负数朝 \(-\infty\) 截断）和 README 里的种子，在 Julia 里重写**整数**模型，再比 `n_err`。浮点 `awgn` 对不上这些比特，这是预期的。
 
@@ -85,12 +88,18 @@ fpga/ax7020/
   rtl/qpsk_slicer.v         QPSK 硬判决
   rtl/qam_gray.v            16/64-QAM 硬映射和硬判决
   rtl/qpsk_qam_awgn_ber.v   刀2 链路
+  rtl/conv75_trellis.vh     (7, 5) 的下一状态和输出，被编码器和译码器 include
+  rtl/conv75_encode.v       卷积编码
+  rtl/viterbi_hard75.v      硬判决 Viterbi
+  rtl/conv_bpsk_awgn_ber.v  刀3 链路：编码、BPSK、AWGN、译码、BER
   tb/tb_bpsk_unit.v         刀1：映射、判决、LFSR、噪声刻度
   tb/tb_bpsk_awgn_ber.v     刀1：BER 对 Eb/N0
   tb/tb_ax7020_top.v        顶层复位和按键的短冒烟
   tb/tb_qpsk_qam_unit.v     刀2：星座坐标、往返、噪声刻度
   tb/tb_qpsk_qam_ber.v      刀2：BER 对 Eb/N0
-  constr/ax7020_bpsk.xdc    占位引脚，需按板本改。刀2 没有新管脚
+  tb/tb_conv75_unit.v       刀3：编码和硬 Viterbi 向量
+  tb/tb_conv_bpsk_ber.v     刀3：编码 BPSK 的信息比特 BER
+  constr/ax7020_bpsk.xdc    占位引脚，需按板本改。刀2、刀3 没有新管脚
   sim/run_iverilog.sh       本地 Icarus 仿真
 ```
 
@@ -108,7 +117,7 @@ cd fpga/ax7020
 bash sim/run_iverilog.sh
 ```
 
-脚本依次跑五个测试台（刀1 三个，刀2 两个）。每个测试台打印一行 `PASS`。趋势测试台会打印无噪声帧和 0、2、4、6、8、10 dB 的差错计数。刀1 的 `NBITS = 16384`。刀2 的 `NBITS = 16380`，这样 2、4、6 比特每符号都能整除。种子写在 RTL 里。同一版本的 Icarus 应得到同一张表。
+脚本依次跑七个测试台（刀1 三个，刀2 两个，刀3 两个）。编译带 `-I rtl`，因为编码器和译码器 include 同目录的 `conv75_trellis.vh`。每个测试台打印一行 `PASS`。刀1 的 `NBITS = 16384`。刀2 的 `NBITS = 16380`。刀3 每帧 64 个信息比特、32 帧，共 2048 个信息比特。种子写在 RTL 里。同一版本的 Icarus 应得到同一张表。
 
 通过条件：
 
@@ -117,6 +126,7 @@ bash sim/run_iverilog.sh
 - 10 dB 的差错数不超过 8 dB。
 - 刀1：0 dB 的差错比例落在 5% 到 12%（教材 \(Q\) 约 7.9%）。4 dB 落在 0.4% 到 4%（教材约 1.25%）。
 - 刀2：QPSK 的 0 dB 落在 4% 到 15%，4 dB 落在 0.4% 到 4%。16-QAM 的 0 dB 落在 6% 到 25%。64-QAM 的 0 dB 落在 8% 到 35%。三种都要求 0 dB 到 8 dB 严格下降。
+- 刀3：无噪声信息比特差错为 0。0 dB、2 dB、4 dB 的差错严格下降，6 dB 和 8 dB 不超过前一档。0 dB 落在 2% 到 40%。这不是联合界验收。
 
 这是为了抓住「噪声没加上」或「刻度错一个数量级」。**不是** Julia `test/` 里那种 Clopper–Pearson 对闭式的验收，也不是和 `demos/ber_bpsk.jl` 比比特。
 
@@ -169,7 +179,28 @@ Icarus Verilog 12.0、`NBITS = 16380`、当前种子的一次输出。0 dB 到 8
 | 8 dB | 1 | \(6.11 \times 10^{-5}\) | 158 | \(9.65 \times 10^{-3}\) | 900 | \(5.49 \times 10^{-2}\) |
 | 10 dB | 0 | 0 | 31 | \(1.89 \times 10^{-3}\) | 424 | \(2.59 \times 10^{-2}\) |
 
-板上的 `ax7020_bpsk_top` 仍然只跑 BPSK。刀2 的模块可以综合，但没有接到按键或 LED，也没有新的 `.xdc`。要上板得自己改顶层。本仓库没有为刀2 跑过 Vivado，也没有比特流。
+板上的 `ax7020_bpsk_top` 仍然只跑 BPSK。刀2、刀3 的模块可以综合，但没有接到按键或 LED，也没有新的 `.xdc`。要上板得自己改顶层。本仓库没有为它们跑过 Vivado，也没有比特流。
+
+## 刀3：(7, 5) 卷积码和硬判决 Viterbi
+
+母码对齐 Julia 的 `conv_encode`：约束长度 \(K=3\)，生成多项式 \(g_1=1+D+D^2\)、\(g_2=1+D^2\)（八进制 7 和 5），每步先出 \(g_1\) 再出 \(g_2\)。信息比特之后补两个 0，编码器回到状态 0。块上的真实码率是 \(n/(2n+4)\)，不是恰好 \(1/2\)。
+
+硬 Viterbi 对齐整数版 `viterbi_decode`：支路度量是两比特汉明距离；候选度量严格更小才替换；回溯从路径度量最小的状态出发，平局取状态号最小的那个；不强制结束在状态 0；输出丢掉两个尾比特。测试台锁了 `10110010` 加尾的编码字、其中 1 个和 2 个编码比特的翻转，以及自由距事件 `100`。这些是同一套网格上的离散规则，所以硬比特可以对上。加上 AWGN 之后的误码计数不是和 Julia `randn` 或联合界的数值契约。
+
+**不做删余。** 2/3、3/4 留到以后。Julia 的硬判决接口没有删除符号，删余是在 LLR 里把丢掉的母比特写成 0，那是软判决路径。这里没有软度量，也没有 LLR。
+
+链路是：LFSR 信息比特 → 编码 → 每个编码比特做 BPSK → 两路独立的均匀和噪声 → 硬判决 → Viterbi → 只对信息比特计 BER。`snr_index` 是信息比特 \(E_b/N_0\)。名义码率 \(1/2\)、编码符号 \(E_s=1\)，所以 \(E_b=2\)，和测试里 `awgn(..., energy_per_bit=2)` 的噪声公式一样：\(\sigma = 1024/\sqrt{10^{\gamma/10}}\)。尾比特造成的速率损失没有再折进 \(\sigma\)。这张刻度是 `awgn_clt` 的 `SCALE_MODE=1`。刀1 的 `k=1` 表不动，未编码 BPSK 和这条链路的噪声不是同一套数，不能把两条 BER 曲线当成同一条 \(\sigma\)。
+
+Icarus Verilog 12.0，每帧 64 个信息比特、32 帧（2048 比特），当前种子的一次输出。0 dB 到 4 dB 下降；6 dB 和 8 dB 这一次是 0。2048 比特太短，不能用来声称已经低于未编码 BPSK 或低于联合界。
+
+| \(E_b/N_0\) | 信息比特差错 / 2048 | BER |
+| --- | ---: | ---: |
+| 无噪声 | 0 | 0 |
+| 0 dB | 428 | \(2.09 \times 10^{-1}\) |
+| 2 dB | 173 | \(8.45 \times 10^{-2}\) |
+| 4 dB | 17 | \(8.30 \times 10^{-3}\) |
+| 6 dB | 0 | 0 |
+| 8 dB | 0 | 0 |
 
 ## 上板
 
@@ -180,7 +211,7 @@ Icarus Verilog 12.0、`NBITS = 16380`、当前种子的一次输出。0 dB 到 8
 器件按芯片丝印选。AX7020 常见是 **XC7Z020-2CLG400I**（工程里往往写成 `xc7z020clg400-2`）。以板上的丝印为准。
 
 1. 新建 RTL 工程，不要建 Block Design。本顶层不用 PS、AXI、DDR 或 UART。
-2. 加入 `rtl/` 下全部 `.v`。不要加入 `tb/`。刀2 的映射模块可以加进去，但现成顶层不用它们。
+2. 加入 `rtl/` 下全部 `.v`，以及 `conv75_trellis.vh`（和 `.v` 放在同一目录，或把该目录加进 include 路径）。不要加入 `tb/`。现成顶层只用 BPSK。
 3. 顶层设为 `ax7020_bpsk_top`（只演示 BPSK）。
 4. 加入 `constr/ax7020_bpsk.xdc`。先对照原理图改引脚和 `IOSTANDARD`。
 5. 综合、实现、生成比特流。本仓库没跑过这一步，所以没有时序报告可以引用。50 MHz 直接用 PL 脚上的时钟，没有 Clocking Wizard。

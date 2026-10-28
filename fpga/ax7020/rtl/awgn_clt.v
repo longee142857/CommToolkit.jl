@@ -19,11 +19,16 @@
 // snr_index: 0..5 → 0,2,4,6,8,10 dB；其它 → MULT = 0（无噪声）。
 // 其它 k 也得到 MULT = 0，调用方不要靠这个来“关闭噪声”以外的用途。
 //
-// SEED_SET = 0 是刀1 的 12 个种子。SEED_SET = 1 是另一组，给正交路用，
-// 这样 I/Q 两路噪声不会是同一条序列。分布仍是截断的均匀和，不是 randn。
+// SEED_SET = 0 是刀1 的 12 个种子。SEED_SET = 1 是另一组，给正交路或
+// 卷积码的第二路编码比特用，这样两路噪声不会是同一条序列。
+// SCALE_MODE = 0 用 bits_per_symbol 的表。SCALE_MODE = 1 是码率 1/2 的
+// 编码 BPSK：Es = 1、Eb = 2，σ = AMP / sqrt(10^(dB/10))，对应
+// awgn(..., energy_per_bit=2)。默认 0，刀1 / 刀2 的计数不因此改变。
+// 分布仍是截断的均匀和，不是 randn。
 module awgn_clt #(
-    parameter integer AMP      = 1024,
-    parameter integer SEED_SET = 0
+    parameter integer AMP        = 1024,
+    parameter integer SEED_SET   = 0,
+    parameter integer SCALE_MODE = 0
 ) (
     input  wire               clk,
     input  wire               rst,
@@ -160,7 +165,25 @@ module awgn_clt #(
         {4'd0, ubyte[9]}  + {4'd0, ubyte[10]} + {4'd0, ubyte[11]};
 
     wire signed [12:0] centered = $signed({1'b0, sum_u}) - 13'sd1530;
-    wire [15:0]        mult     = scale_of(snr_index, bits_per_symbol);
+    function [15:0] scale_coded;
+        input [2:0] idx;
+        begin
+            // round(1024 / sqrt(10^(dB/10)))。0,2,4,6,8,10 dB。
+            case (idx)
+                3'd0: scale_coded = 16'd1024;
+                3'd1: scale_coded = 16'd813;
+                3'd2: scale_coded = 16'd646;
+                3'd3: scale_coded = 16'd513;
+                3'd4: scale_coded = 16'd408;
+                3'd5: scale_coded = 16'd324;
+                default: scale_coded = 16'd0;
+            endcase
+        end
+    endfunction
+
+    wire [15:0]        mult     = (SCALE_MODE != 0)
+        ? scale_coded(snr_index)
+        : scale_of(snr_index, bits_per_symbol);
     wire signed [16:0] mult_s   = $signed({1'b0, mult});
     wire signed [29:0] prod     = centered * mult_s;
     wire signed [29:0] shifted  = prod >>> 8;
