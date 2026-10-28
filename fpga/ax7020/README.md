@@ -1,22 +1,23 @@
 # AX7020 教学链路
 
-黑金 ALINX **AX7020**（Zynq-7020，器件 **XC7Z020**，常见封装 CLG400）上的 **PL 教学**示例。和 Julia 包 `CommToolkit` 里的 `Modulation` / `Channel` / `Coding` / `Metrics` / `Scrambling` **概念对齐**。定点噪声是 12 个离散均匀数的和，不是 `randn`。**不要把这里的误码率当成和 Julia 浮点仿真 bit-exact，也不要当成已经和闭式公式做过区间验收。** 本目录没有附带定点对照的 Julia 脚本；没做那一步，就不声称数值一致。
+黑金 ALINX **AX7020**（Zynq-7020，器件 **XC7Z020**，常见封装 CLG400）上的 **PL 教学**示例。和 Julia 包 `CommToolkit` 里的 `Modulation` / `Channel` / `Coding` / `OFDM` / `Metrics` / `Scrambling` **概念对齐**。定点噪声是 12 个离散均匀数的和，不是 `randn`。**不要把这里的误码率当成和 Julia 浮点仿真 bit-exact，也不要当成已经和闭式公式做过区间验收。** 本目录没有附带定点对照的 Julia 脚本；没做那一步，就不声称数值一致。
 
 | 刀 | 内容 | 状态 |
 | --- | --- | --- |
 | 1 | BPSK + 实 AWGN + BER | 已在 main |
 | 2 | QPSK，以及方形 Gray 16-QAM、64-QAM 的硬映射 / 硬判决 | 已在 main |
-| 3 | K=3 (7, 5) 卷积母码 + 硬判决 Viterbi，接到 BPSK | 当前目录 |
-| 以后 | 删余 2/3 与 3/4、软判决、OFDM、MIMO、LDPC/Turbo | 不做 |
+| 3 | K=3 (7, 5) 卷积母码 + 硬判决 Viterbi，接到 BPSK | 已在 main |
+| 4 | N=16 的 CP-OFDM：IFFT/FFT、循环前缀、QPSK 子载波 | 当前目录 |
+| 以后 | 删余、软判决、STO/CFO、信道估计、MIMO、LDPC/Turbo | 不做 |
 
-刀1 的链路是：PRBS 比特 → BPSK 映射 → 实 AWGN → 硬判决 → 差错计数。刀2 在旁边加复星座，噪声源和差错计数的做法不变。刀3 在 BPSK 前面加上 (7, 5) 编码，后面加上硬 Viterbi，误码改数信息比特。
+刀1 的链路是：PRBS 比特 → BPSK 映射 → 实 AWGN → 硬判决 → 差错计数。刀2 在旁边加复星座，噪声源和差错计数的做法不变。刀3 在 BPSK 前面加上 (7, 5) 编码，后面加上硬 Viterbi，误码改数信息比特。刀4 是 16 点 CP-OFDM：QPSK 子载波、IFFT、循环前缀、可选时域噪声、去前缀、FFT、硬判决。
 
 ## 边界
 
 - 教学级定点，不是量产调制解调器。没有 AGC、成形滤波、定时或载波恢复。
 - 不是 NR，不是 LTE，不是 O-RAN。没有资源栅格、前传、eCPRI 或 xApp。
 - 和 Julia `CommToolkit` 是概念对照，不是数值契约。数据 LFSR 的移位规则可以和 `lfsr_sequence` 对上（见下表）；噪声和 BER 不对上。
-- 刀1 是 **BPSK + 实 AWGN + BER**。刀2 是 **QPSK** 和方形 Gray **16-QAM / 64-QAM** 硬判决。刀3 是终止的 **K=3 (7, 5) 卷积母码**和**硬判决 Viterbi**，串在 BPSK 上。仍然不做删余、软判决、OFDM、MIMO、交织、均衡、同步，也不是 NR LDPC 或 Turbo。
+- 刀1 是 **BPSK + 实 AWGN + BER**。刀2 是 **QPSK** 和方形 Gray **16-QAM / 64-QAM** 硬判决。刀3 是终止的 **K=3 (7, 5) 卷积母码**和**硬判决 Viterbi**。刀4 是 **N=16、CP=4** 的 CP-OFDM 骨架，子载波用 QPSK。仍然不做删余、软判决、STO/CFO、LS/MMSE、多径、MIMO，也不是 NR LDPC 或 Turbo。
 - 引脚是 AX7020 手册里的常见占位。**没有在这块板上实测过**，综合和时序也没有在本仓库里跑过。
 
 GitHub Actions 仍只测 Julia 包（`src/`、`ext/`）。这里不进那个覆盖率，CI 也不跑 Vivado 或 Icarus。
@@ -35,6 +36,9 @@ GitHub Actions 仍只测 Julia 包（`src/`、`ext/`）。这里不进那个覆�
 | `qam_mapper` / `qam_slicer` | `QAM(16)`、`QAM(64)` | MSB 先入。前一半比特是 I 路 Gray，后一半是 Q 路。电平取最近整数单位。门限上的平局归右格，和 `findmin` 的平局规则不一定相同。 |
 | `conv75_encode` | `conv_encode` | 生成多项式 \(1+D+D^2\)、\(1+D^2\)，输出顺序 \((g_1,g_2)\)，再补两个 0 尾比特。测试台锁了固定向量。 |
 | `viterbi_hard75` | 整数 `viterbi_decode` | 汉明支路度量，严格小于才替换，从最小度量状态回溯，平局取最小状态号。去掉尾比特。无噪声和给定硬比特可以对上。不是 LLR 那条，没有删除符号。 |
+| `fft16` 的 IFFT / FFT | `FFTW.ifft` / `fft` | IFFT 每级右移 1 位，四级合起来除以 16。FFT 不除以 N。旋转因子是 1024 倍的余弦，乘完再右移 10 位。无噪声时 `fft(ifft(X))` 回到 X 附近几位，不是逐位相同。 |
+| CP 长度 4，加在 16 点前面 | `generate_ofdm_symbol` 的前缀 | 前缀是时域块的最后 4 个样本。接收丢掉前 4 个再做 FFT。长度不是 Julia 默认的 64/16，只是同一个 1/4。 |
+| 16 个 QPSK 子载波，含 DC | `OFDMParams` 的数据/导频/保护 | **不是**那张默认图。没有保护带，没有导频，没有把 DC 置零。 |
 
 想自己做定点对照时，按下一节的 AMP、均值 1530、算术右移（负数朝 \(-\infty\) 截断）和 README 里的种子，在 Julia 里重写**整数**模型，再比 `n_err`。浮点 `awgn` 对不上这些比特，这是预期的。
 
@@ -92,6 +96,8 @@ fpga/ax7020/
   rtl/conv75_encode.v       卷积编码
   rtl/viterbi_hard75.v      硬判决 Viterbi
   rtl/conv_bpsk_awgn_ber.v  刀3 链路：编码、BPSK、AWGN、译码、BER
+  rtl/fft16.v               16 点基-2 FFT / IFFT
+  rtl/ofdm16_qpsk_ber.v     刀4 链路：QPSK、IFFT、CP、FFT、BER
   tb/tb_bpsk_unit.v         刀1：映射、判决、LFSR、噪声刻度
   tb/tb_bpsk_awgn_ber.v     刀1：BER 对 Eb/N0
   tb/tb_ax7020_top.v        顶层复位和按键的短冒烟
@@ -99,7 +105,9 @@ fpga/ax7020/
   tb/tb_qpsk_qam_ber.v      刀2：BER 对 Eb/N0
   tb/tb_conv75_unit.v       刀3：编码和硬 Viterbi 向量
   tb/tb_conv_bpsk_ber.v     刀3：编码 BPSK 的信息比特 BER
-  constr/ax7020_bpsk.xdc    占位引脚，需按板本改。刀2、刀3 没有新管脚
+  tb/tb_fft16.v             刀4：直流冲激和 QPSK 的 IFFT/FFT 往返
+  tb/tb_ofdm16_ber.v        刀4：CP-OFDM 的 BER
+  constr/ax7020_bpsk.xdc    占位引脚，需按板本改。刀2 及以后没有新管脚
   sim/run_iverilog.sh       本地 Icarus 仿真
 ```
 
@@ -117,7 +125,7 @@ cd fpga/ax7020
 bash sim/run_iverilog.sh
 ```
 
-脚本依次跑七个测试台（刀1 三个，刀2 两个，刀3 两个）。编译带 `-I rtl`，因为编码器和译码器 include 同目录的 `conv75_trellis.vh`。每个测试台打印一行 `PASS`。刀1 的 `NBITS = 16384`。刀2 的 `NBITS = 16380`。刀3 每帧 64 个信息比特、32 帧，共 2048 个信息比特。种子写在 RTL 里。同一版本的 Icarus 应得到同一张表。
+脚本依次跑九个测试台（刀1 三个，刀2 两个，刀3 两个，刀4 两个）。编译带 `-I rtl`，因为编码器和译码器 include 同目录的 `conv75_trellis.vh`。每个测试台打印一行 `PASS`。刀1 的 `NBITS = 16384`。刀2 的 `NBITS = 16380`。刀3 每帧 64 个信息比特、32 帧。刀4 是 32 个 OFDM 符号、每符号 32 比特，共 1024 比特。种子写在 RTL 里。同一版本的 Icarus 应得到同一张表。
 
 通过条件：
 
@@ -127,6 +135,7 @@ bash sim/run_iverilog.sh
 - 刀1：0 dB 的差错比例落在 5% 到 12%（教材 \(Q\) 约 7.9%）。4 dB 落在 0.4% 到 4%（教材约 1.25%）。
 - 刀2：QPSK 的 0 dB 落在 4% 到 15%，4 dB 落在 0.4% 到 4%。16-QAM 的 0 dB 落在 6% 到 25%。64-QAM 的 0 dB 落在 8% 到 35%。三种都要求 0 dB 到 8 dB 严格下降。
 - 刀3：无噪声信息比特差错为 0。0 dB、2 dB、4 dB 的差错严格下降，6 dB 和 8 dB 不超过前一档。0 dB 落在 2% 到 40%。这不是联合界验收。
+- 刀4：无噪声差错为 0。0 dB 到 4 dB 严格下降，6 dB 和 8 dB 不超过前一档。0 dB 落在 2% 到 20%。不是 `apply_channel` 的样本 SNR 验收。
 
 这是为了抓住「噪声没加上」或「刻度错一个数量级」。**不是** Julia `test/` 里那种 Clopper–Pearson 对闭式的验收，也不是和 `demos/ber_bpsk.jl` 比比特。
 
@@ -179,7 +188,7 @@ Icarus Verilog 12.0、`NBITS = 16380`、当前种子的一次输出。0 dB 到 8
 | 8 dB | 1 | \(6.11 \times 10^{-5}\) | 158 | \(9.65 \times 10^{-3}\) | 900 | \(5.49 \times 10^{-2}\) |
 | 10 dB | 0 | 0 | 31 | \(1.89 \times 10^{-3}\) | 424 | \(2.59 \times 10^{-2}\) |
 
-板上的 `ax7020_bpsk_top` 仍然只跑 BPSK。刀2、刀3 的模块可以综合，但没有接到按键或 LED，也没有新的 `.xdc`。要上板得自己改顶层。本仓库没有为它们跑过 Vivado，也没有比特流。
+板上的 `ax7020_bpsk_top` 仍然只跑 BPSK。刀2 及以后的模块可以综合，但没有接到按键或 LED，也没有新的 `.xdc`。要上板得自己改顶层。本仓库没有为它们跑过 Vivado，也没有比特流。
 
 ## 刀3：(7, 5) 卷积码和硬判决 Viterbi
 
@@ -200,6 +209,32 @@ Icarus Verilog 12.0，每帧 64 个信息比特、32 帧（2048 比特），当�
 | 2 dB | 173 | \(8.45 \times 10^{-2}\) |
 | 4 dB | 17 | \(8.30 \times 10^{-3}\) |
 | 6 dB | 0 | 0 |
+| 8 dB | 0 | 0 |
+
+## 刀4：N=16 的 CP-OFDM
+
+长度写死为 **N = 16**，循环前缀 **4** 个样本。Julia 默认是 64 和 16，这里只沿用「前缀是 FFT 长度的四分之一」这一点，方便在 Icarus 里把整条链路跑完。旋转因子只有 0、±1、±j 和 \(\pi/8\) 的余弦，用 `round(1024 * cos)` 存成整数。
+
+发射：每个子载波一个 QPSK（刀2 的映射，幅度 724）→ IFFT → 把时域最后 4 点接到前面。16 个格子全是数据，**包括 DC**。没有保护带，没有导频，没有 LCG 导频序列。所以这不是 `OFDMParams` 那张默认子载波图，也不是 `ofdm_tx` 的整段行为。
+
+接收：假定突发从样本 0 对齐，丢掉前缀，做 FFT，对每个格子硬判决。平坦、`H = 1`，没有除法均衡。
+
+和 Julia OFDM 的差距，这里故意留着：
+
+- 没有 `ofdm_sync`，没有 van de Beek 的定时，没有小数倍 CFO，更没有整数倍 CFO。
+- 没有 `TDLChannel`，没有多径，因此前缀只在无失真回路里被加上再丢掉，没有用来吸收时延扩展。
+- 没有 `ofdm_rx_ls` / `ofdm_rx_mmse`，也没有把已知 `H_freq` 除掉的 `ofdm_rx_known`。理想平坦信道下 FFT 结果直接判决。
+- Julia `apply_channel` 的 `snr_db` 是时域样本功率比上噪声功率，不是 \(E_b/N_0\)。刀4 的 `snr_index` 仍是想让每个子载波看到和刀2 QPSK 一样的 \(E_b/N_0\)：时域噪声取 `awgn_clt` 的 k=2 刻度，再算术右移 2 位。未归一化的 16 点 FFT 把标准差乘 4，右移先除掉。定点舍入之后这只是近似，不是那条样本 SNR 的定义。
+
+Icarus Verilog 12.0、32 个符号、1024 比特的一次输出。直流冲激的 IFFT/FFT 在 `tb_fft16` 里是精确的 64 和 1024；QPSK 回路无噪声差错为 0，但格子上的数值和 724 差几个 LSB，所以不是 bit-exact。
+
+| \(E_b/N_0\) | 差错 / 1024 | BER |
+| --- | ---: | ---: |
+| 无噪声 | 0 | 0 |
+| 0 dB | 77 | \(7.52 \times 10^{-2}\) |
+| 2 dB | 36 | \(3.52 \times 10^{-2}\) |
+| 4 dB | 9 | \(8.79 \times 10^{-3}\) |
+| 6 dB | 2 | \(1.95 \times 10^{-3}\) |
 | 8 dB | 0 | 0 |
 
 ## 上板

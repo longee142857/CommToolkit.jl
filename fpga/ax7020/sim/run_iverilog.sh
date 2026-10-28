@@ -29,6 +29,8 @@ RTL=(
     rtl/conv75_encode.v
     rtl/viterbi_hard75.v
     rtl/conv_bpsk_awgn_ber.v
+    rtl/fft16.v
+    rtl/ofdm16_qpsk_ber.v
 )
 
 run_one() {
@@ -65,5 +67,7 @@ run_one tb/tb_qpsk_qam_unit.v
 run_one tb/tb_qpsk_qam_ber.v
 run_one tb/tb_conv75_unit.v
 run_one tb/tb_conv_bpsk_ber.v
+run_one tb/tb_fft16.v
+run_one tb/tb_ofdm16_ber.v
 
 echo "全部 PASS。"
