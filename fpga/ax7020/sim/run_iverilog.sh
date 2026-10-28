@@ -22,6 +22,10 @@ RTL=(
     rtl/awgn_clt.v
     rtl/bpsk_awgn_ber.v
     rtl/ax7020_bpsk_top.v
+    rtl/qpsk_mapper.v
+    rtl/qpsk_slicer.v
+    rtl/qam_gray.v
+    rtl/qpsk_qam_awgn_ber.v
 )
 
 run_one() {
@@ -54,5 +58,7 @@ run_one() {
 run_one tb/tb_bpsk_unit.v
 run_one tb/tb_bpsk_awgn_ber.v
 run_one tb/tb_ax7020_top.v
+run_one tb/tb_qpsk_qam_unit.v
+run_one tb/tb_qpsk_qam_ber.v
 
 echo "全部 PASS。"

@@ -68,6 +68,7 @@ module bpsk_awgn_ber #(
         .rst(lfsr_rst),
         .en(run_en),
         .snr_index(snr_q),
+        .bits_per_symbol(3'd1),
         .noise(noise)
     );
 

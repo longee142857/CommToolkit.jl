@@ -9,20 +9,27 @@
 // 和的标准差是 sqrt(12 * (256^2-1)/12) = sqrt(65535) ≈ 255.998。
 // 再乘 Eb/N0 刻度并算术右移 8 位，得到近似 N(0, σ^2) 的整数噪声：
 //
-//   σ = AMP / sqrt(2 * 10^(Eb/N0_dB / 10))
+//   σ = AMP / sqrt(2 * k * 10^(Eb/N0_dB / 10))
 //   MULT = round(σ)，SHIFT = 8
 //   noise = floor(centered * MULT / 256)   // 负数朝 -∞ 截断
 //
-// snr_index: 0..5 → 0,2,4,6,8,10 dB；6 和 7 → MULT = 0（无噪声）。
-// 分布是离散均匀和（Irwin–Hall 型），两边被截断，不是 Julia 的 randn。
-// 因此误码率只要求随 Eb/N0 下降，不与浮点仿真或 Q 函数做数值契约。
+// k = bits_per_symbol。k = 1 就是刀1 的 BPSK 表（Es = Eb）。
+// k = 2、4、6 给 QPSK、16-QAM、64-QAM，对应 Julia
+// awgn(syms, snr_db, k) 在 Es = 1 时每个实维度的方差 1/(2*k*ρ)。
+// snr_index: 0..5 → 0,2,4,6,8,10 dB；其它 → MULT = 0（无噪声）。
+// 其它 k 也得到 MULT = 0，调用方不要靠这个来“关闭噪声”以外的用途。
+//
+// SEED_SET = 0 是刀1 的 12 个种子。SEED_SET = 1 是另一组，给正交路用，
+// 这样 I/Q 两路噪声不会是同一条序列。分布仍是截断的均匀和，不是 randn。
 module awgn_clt #(
-    parameter integer AMP = 1024
+    parameter integer AMP      = 1024,
+    parameter integer SEED_SET = 0
 ) (
     input  wire               clk,
     input  wire               rst,
     input  wire               en,
     input  wire [2:0]         snr_index,
+    input  wire [2:0]         bits_per_symbol,
     output wire signed [15:0] noise
 );
 
@@ -37,18 +44,52 @@ module awgn_clt #(
 
     function [15:0] scale_of;
         input [2:0] idx;
+        input [2:0] bps;
         begin
-            // round(AMP / sqrt(2 * 10^(dB/10)))，AMP = 1024。
-            // 0 dB 724, 2 dB 575, 4 dB 457, 6 dB 363, 8 dB 288, 10 dB 229。
-            case (idx)
-                3'd0: scale_of = 16'd724;
-                3'd1: scale_of = 16'd575;
-                3'd2: scale_of = 16'd457;
-                3'd3: scale_of = 16'd363;
-                3'd4: scale_of = 16'd288;
-                3'd5: scale_of = 16'd229;
-                default: scale_of = 16'd0;
-            endcase
+            // round(1024 / sqrt(2 * k * 10^(dB/10)))。k = 1 的六个数与刀1 相同。
+            if (bps == 3'd1) begin
+                case (idx)
+                    3'd0: scale_of = 16'd724;
+                    3'd1: scale_of = 16'd575;
+                    3'd2: scale_of = 16'd457;
+                    3'd3: scale_of = 16'd363;
+                    3'd4: scale_of = 16'd288;
+                    3'd5: scale_of = 16'd229;
+                    default: scale_of = 16'd0;
+                endcase
+            end else if (bps == 3'd2) begin
+                case (idx)
+                    3'd0: scale_of = 16'd512;
+                    3'd1: scale_of = 16'd407;
+                    3'd2: scale_of = 16'd323;
+                    3'd3: scale_of = 16'd257;
+                    3'd4: scale_of = 16'd204;
+                    3'd5: scale_of = 16'd162;
+                    default: scale_of = 16'd0;
+                endcase
+            end else if (bps == 3'd4) begin
+                case (idx)
+                    3'd0: scale_of = 16'd362;
+                    3'd1: scale_of = 16'd288;
+                    3'd2: scale_of = 16'd228;
+                    3'd3: scale_of = 16'd181;
+                    3'd4: scale_of = 16'd144;
+                    3'd5: scale_of = 16'd114;
+                    default: scale_of = 16'd0;
+                endcase
+            end else if (bps == 3'd6) begin
+                case (idx)
+                    3'd0: scale_of = 16'd296;
+                    3'd1: scale_of = 16'd235;
+                    3'd2: scale_of = 16'd187;
+                    3'd3: scale_of = 16'd148;
+                    3'd4: scale_of = 16'd118;
+                    3'd5: scale_of = 16'd93;
+                    default: scale_of = 16'd0;
+                endcase
+            end else begin
+                scale_of = 16'd0;
+            end
         end
     endfunction
 
@@ -56,20 +97,37 @@ module awgn_clt #(
     function [30:0] seed_of;
         input integer idx;
         begin
-            case (idx)
-                0:  seed_of = 31'h2E4B17C3;
-                1:  seed_of = 31'h51A60D29;
-                2:  seed_of = 31'h0C0DE116;
-                3:  seed_of = 31'h6A5A1235;
-                4:  seed_of = 31'h13579BDF;
-                5:  seed_of = 31'h2468ACE0;
-                6:  seed_of = 31'h0F1E2D3C;
-                7:  seed_of = 31'h7FFFFFFE;
-                8:  seed_of = 31'h11111111;
-                9:  seed_of = 31'h40000001;
-                10: seed_of = 31'h00ABCDEF;
-                default: seed_of = 31'h55AA33CC;
-            endcase
+            if (SEED_SET == 0) begin
+                case (idx)
+                    0:  seed_of = 31'h2E4B17C3;
+                    1:  seed_of = 31'h51A60D29;
+                    2:  seed_of = 31'h0C0DE116;
+                    3:  seed_of = 31'h6A5A1235;
+                    4:  seed_of = 31'h13579BDF;
+                    5:  seed_of = 31'h2468ACE0;
+                    6:  seed_of = 31'h0F1E2D3C;
+                    7:  seed_of = 31'h7FFFFFFE;
+                    8:  seed_of = 31'h11111111;
+                    9:  seed_of = 31'h40000001;
+                    10: seed_of = 31'h00ABCDEF;
+                    default: seed_of = 31'h55AA33CC;
+                endcase
+            end else begin
+                case (idx)
+                    0:  seed_of = 31'h1A2B3C4D;
+                    1:  seed_of = 31'h5F0E1D2C;
+                    2:  seed_of = 31'h3B4C5D6E;
+                    3:  seed_of = 31'h01234567;
+                    4:  seed_of = 31'h6E5D4C3B;
+                    5:  seed_of = 31'h2BADF00D;
+                    6:  seed_of = 31'h48ACE135;
+                    7:  seed_of = 31'h0000F00D;
+                    8:  seed_of = 31'h35C4A1F0;
+                    9:  seed_of = 31'h19D28B63;
+                    10: seed_of = 31'h3F000001;
+                    default: seed_of = 31'h6D5C4B3A;
+                endcase
+            end
         end
     endfunction
 
@@ -102,7 +160,7 @@ module awgn_clt #(
         {4'd0, ubyte[9]}  + {4'd0, ubyte[10]} + {4'd0, ubyte[11]};
 
     wire signed [12:0] centered = $signed({1'b0, sum_u}) - 13'sd1530;
-    wire [15:0]        mult     = scale_of(snr_index);
+    wire [15:0]        mult     = scale_of(snr_index, bits_per_symbol);
     wire signed [16:0] mult_s   = $signed({1'b0, mult});
     wire signed [29:0] prod     = centered * mult_s;
     wire signed [29:0] shifted  = prod >>> 8;
