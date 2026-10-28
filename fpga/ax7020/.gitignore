@@ -1,0 +1,29 @@
+# 仿真产物。脚本会自己建 sim/out。
+sim/out/
+*.vvp
+*.vcd
+*.lxt
+*.fst
+
+# Vivado / 比特流 / IP 缓存。不要把工程二进制提交进仓。
+*.bit
+*.bin
+*.ltx
+*.jou
+*.log
+*.str
+*.xpr
+*.cache/
+*.gen/
+*.runs/
+*.hw/
+*.ip_user_files/
+*.sim/
+.Xil/
+*.wdb
+*.pb
+*.dcp
+*.edf
+*.vm
+*.xml
+.cache/
