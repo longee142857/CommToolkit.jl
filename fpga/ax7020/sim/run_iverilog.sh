@@ -33,6 +33,8 @@ RTL=(
     rtl/ofdm16_qpsk_ber.v
     rtl/mimo2x2_detect.v
     rtl/mimo2x2_qpsk_ber.v
+    rtl/crc16_ccitt.v
+    rtl/link_mcs_harq.v
 )
 
 run_one() {
@@ -73,5 +75,7 @@ run_one tb/tb_fft16.v
 run_one tb/tb_ofdm16_ber.v
 run_one tb/tb_mimo2x2_unit.v
 run_one tb/tb_mimo2x2_ber.v
+run_one tb/tb_crc16.v
+run_one tb/tb_link_mcs.v
 
 echo "全部 PASS。"

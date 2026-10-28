@@ -1,6 +1,8 @@
 # AX7020 教学链路
 
-黑金 ALINX **AX7020**（Zynq-7020，器件 **XC7Z020**，常见封装 CLG400）上的 **PL 教学**示例。和 Julia 包 `CommToolkit` 里的 `Modulation` / `Channel` / `Coding` / `OFDM` / `MIMO` / `Metrics` / `Scrambling` **概念对齐**。定点噪声是 12 个离散均匀数的和，不是 `randn`。**不要把这里的误码率当成和 Julia 浮点仿真 bit-exact，也不要当成已经和闭式公式做过区间验收。** 本目录没有附带定点对照的 Julia 脚本；没做那一步，就不声称数值一致。
+黑金 ALINX **AX7020**（Zynq-7020，器件 **XC7Z020**，常见封装 CLG400）上的 **PL 教学**示例。和 Julia 包 `CommToolkit` v1.0 里的调制、信道、卷积硬判决、短 OFDM、平坦 MIMO，以及链路闭环里的 CRC / 离散 MCS / Chase **概念对齐**。定点噪声是 12 个离散均匀数的和，不是 `randn`。**不要把这里的误码率或 BLER 当成和 Julia 浮点仿真 bit-exact，也不要当成已经和闭式公式做过区间验收。** 本目录没有附带定点对照的 Julia 脚本；没做那一步，就不声称数值一致。
+
+刀6 把这条 FPGA 教学路线收到 v1 主链路的骨架为止。主链路在这里的意思是：硬判决调制、AWGN、卷积母码的硬 Viterbi、N=16 CP-OFDM、2×2 平坦 ZF/MMSE，再加上 CRC-16、三档 MCS 和硬 Chase 的闭环计数。六刀都可以在 Icarus 里仿真。这不是把 v1 的每条算法搬上 PL。
 
 | 刀 | 内容 | 状态 |
 | --- | --- | --- |
@@ -8,17 +10,18 @@
 | 2 | QPSK，以及方形 Gray 16-QAM、64-QAM 的硬映射 / 硬判决 | 已在 main |
 | 3 | K=3 (7, 5) 卷积母码 + 硬判决 Viterbi，接到 BPSK | 已在 main |
 | 4 | N=16 的 CP-OFDM：IFFT/FFT、循环前缀、QPSK 子载波 | 已在 main |
-| 5 | 2×2 平坦 MIMO，理想 CSI 下的 ZF 与 MMSE，QPSK | 当前目录 |
-| 以后 | 删余、软判决、STO/CFO、OFDM 信道估计、ML/Alamouti/Kronecker、LDPC/Turbo | 不做 |
+| 5 | 2×2 平坦 MIMO，理想 CSI 下的 ZF 与 MMSE，QPSK | 已在 main |
+| 6 | 三档 MCS、CRC-16、硬 Chase、BLER/吞吐计数 | 本目录，路线收口 |
+| — | 软判决全链、删余、LDPC、Turbo、Kronecker、38.901、EXIT、路线 C 等 | 刻意不做，见文末对照表 |
 
-刀1 的链路是：PRBS 比特 → BPSK 映射 → 实 AWGN → 硬判决 → 差错计数。刀2 在旁边加复星座，噪声源和差错计数的做法不变。刀3 在 BPSK 前面加上 (7, 5) 编码，后面加上硬 Viterbi，误码改数信息比特。刀4 是 16 点 CP-OFDM：QPSK 子载波、IFFT、循环前缀、可选时域噪声、去前缀、FFT、硬判决。刀5 是固定的 2×2 平坦信道，理想 CSI，ZF 和 MMSE 硬判决。
+刀1 的链路是：PRBS 比特 → BPSK 映射 → 实 AWGN → 硬判决 → 差错计数。刀2 在旁边加复星座，噪声源和差错计数的做法不变。刀3 在 BPSK 前面加上 (7, 5) 编码，后面加上硬 Viterbi，误码改数信息比特。刀4 是 16 点 CP-OFDM：QPSK 子载波、IFFT、循环前缀、可选时域噪声、去前缀、FFT、硬判决。刀5 是固定的 2×2 平坦信道，理想 CSI，ZF 和 MMSE 硬判决。刀6 把已有模块收成一条短帧闭环：16 比特净荷、CRC-16、按 Es/N0 选三档里的一档、硬 Chase 重传，直到 CRC 通过或达到 `max_tx`。
 
 ## 边界
 
 - 教学级定点，不是量产调制解调器。没有 AGC、成形滤波、定时或载波恢复。
 - 不是 NR，不是 LTE，不是 O-RAN。没有资源栅格、前传、eCPRI 或 xApp。
 - 和 Julia `CommToolkit` 是概念对照，不是数值契约。数据 LFSR 的移位规则可以和 `lfsr_sequence` 对上（见下表）；噪声和 BER 不对上。
-- 刀1 是 **BPSK + 实 AWGN + BER**。刀2 是 **QPSK** 和方形 Gray **16-QAM / 64-QAM** 硬判决。刀3 是终止的 **K=3 (7, 5) 卷积母码**和**硬判决 Viterbi**。刀4 是 **N=16、CP=4** 的 CP-OFDM 骨架。刀5 是 **2×2 平坦 MIMO** 的 ZF 与 MMSE。仍然不做删余、软判决、STO/CFO、OFDM 信道估计、ML 穷搜、Alamouti、SVD 预编码、Kronecker 相关，也不是 NR LDPC 或 Turbo。
+- 刀1 是 **BPSK + 实 AWGN + BER**。刀2 是 **QPSK** 和方形 Gray **16-QAM / 64-QAM** 硬判决。刀3 是终止的 **K=3 (7, 5) 卷积母码**和**硬判决 Viterbi**。刀4 是 **N=16、CP=4** 的 CP-OFDM 骨架。刀5 是 **2×2 平坦 MIMO** 的 ZF 与 MMSE。刀6 是 **三档 MCS + CRC-16 + 硬 Chase**，统计 ACK/失败和净荷比特 / 信道使用。刻意不做的部分列在文末「和 v1.0 的对照」：软判决全链、删余、LDPC、Turbo、Kronecker、TR 38.901、EXIT、路线 C 的多用户 xApp，以及 NR 调度和增量冗余。
 - 引脚是 AX7020 手册里的常见占位。**没有在这块板上实测过**，综合和时序也没有在本仓库里跑过。
 
 GitHub Actions 仍只测 Julia 包（`src/`、`ext/`）。这里不进那个覆盖率，CI 也不跑 Vivado 或 Icarus。
@@ -42,6 +45,9 @@ GitHub Actions 仍只测 Julia 包（`src/`、`ext/`）。这里不进那个覆�
 | 16 个 QPSK 子载波，含 DC | `OFDMParams` 的数据/导频/保护 | **不是**那张默认图。没有保护带，没有导频，没有把 DC 置零。 |
 | `mimo2x2_detect` | `zf_detect` / `mmse_detect` | 2×2，\(G=H^{\mathrm{H}}H+\sigma^2 I\)，再 \(G^{-1}H^{\mathrm{H}}y\)。`noise_var=0` 是 ZF。除法朝 0 截断。不是 `pinv` 的逐位结果。 |
 | 链路里的固定 H | `mimo_channel` | **不是** i.i.d. 瑞利抽样，也不对 H 做平均。默认是实矩阵 `[[1024,256],[128,1024]]`，1024 表示 1。 |
+| `crc16_ccitt` | `crc16_ccitt` / `crc_append` / `crc_check` | 多项式 0x1021，初值 0，高位先入，不反射，xor-out 0。`"123456789"` 的余数是 `0x31C3`。整字余数 0 才算通过。 |
+| `link_mcs_harq` 的三档 | `teaching_mcs_table` | 只借用「离散表 + 按 Es/N0 选一档」。档数、净荷长度和门限都不是那张五档表，也不是 `teaching_amc_thresholds()`。 |
+| 硬 Chase：比特 0 记 +1，比特 1 记 −1，和为负判 1 | `simulate_link` 的 Chase | 都是重传同一份符号，CRC 过了就停，不是增量冗余。Julia 把软比特 LLR 相加；这里是硬判决的 ±1 累计。平局（和为 0）判成比特 0。 |
 
 想自己做定点对照时，按下一节的 AMP、均值 1530、算术右移（负数朝 \(-\infty\) 截断）和 README 里的种子，在 Julia 里重写**整数**模型，再比 `n_err`。浮点 `awgn` 对不上这些比特，这是预期的。
 
@@ -103,6 +109,8 @@ fpga/ax7020/
   rtl/ofdm16_qpsk_ber.v     刀4 链路：QPSK、IFFT、CP、FFT、BER
   rtl/mimo2x2_detect.v      2×2 ZF/MMSE
   rtl/mimo2x2_qpsk_ber.v    刀5 链路：固定 H、QPSK、AWGN、BER
+  rtl/crc16_ccitt.v         CRC-16/XMODEM，按比特移位
+  rtl/link_mcs_harq.v       刀6：三档 MCS、硬 Chase、BLER/吞吐计数
   tb/tb_bpsk_unit.v         刀1：映射、判决、LFSR、噪声刻度
   tb/tb_bpsk_awgn_ber.v     刀1：BER 对 Eb/N0
   tb/tb_ax7020_top.v        顶层复位和按键的短冒烟
@@ -114,6 +122,8 @@ fpga/ax7020/
   tb/tb_ofdm16_ber.v        刀4：CP-OFDM 的 BER
   tb/tb_mimo2x2_unit.v      刀5：ZF/MMSE 的定点向量
   tb/tb_mimo2x2_ber.v       刀5：固定信道上的 BER
+  tb/tb_crc16.v             刀6：0x31C3、追加后余数 0、单比特翻转
+  tb/tb_link_mcs.v          刀6：无噪声三档、自动选档、硬 Chase
   constr/ax7020_bpsk.xdc    占位引脚，需按板本改。刀2 及以后没有新管脚
   sim/run_iverilog.sh       本地 Icarus 仿真
 ```
@@ -132,7 +142,7 @@ cd fpga/ax7020
 bash sim/run_iverilog.sh
 ```
 
-脚本依次跑十一个测试台（刀1 三个，刀2 两个，刀3 两个，刀4 两个，刀5 两个）。编译带 `-I rtl`，因为编码器和译码器 include 同目录的 `conv75_trellis.vh`。每个测试台打印一行 `PASS`。刀1 的 `NBITS = 16384`。刀2 的 `NBITS = 16380`。刀3 每帧 64 个信息比特、32 帧。刀4 是 32 个 OFDM 符号、共 1024 比特。刀5 是 256 个 2×2 向量、共 1024 比特。种子写在 RTL 里。同一版本的 Icarus 应得到同一张表。
+脚本依次跑十三个测试台（刀1 三个，刀2 两个，刀3 两个，刀4 两个，刀5 两个，刀6 两个）。编译带 `-I rtl`，因为编码器和译码器 include 同目录的 `conv75_trellis.vh`。每个测试台打印一行 `PASS`。刀1 的 `NBITS = 16384`。刀2 的 `NBITS = 16380`。刀3 每帧 64 个信息比特、32 帧。刀4 是 32 个 OFDM 符号、共 1024 比特。刀5 是 256 个 2×2 向量、共 1024 比特。刀6 默认 8 个传输块，每块 16 个净荷比特。种子写在 RTL 里。同一版本的 Icarus 应得到同一张表。
 
 通过条件：
 
@@ -144,6 +154,7 @@ bash sim/run_iverilog.sh
 - 刀3：无噪声信息比特差错为 0。0 dB、2 dB、4 dB 的差错严格下降，6 dB 和 8 dB 不超过前一档。0 dB 落在 2% 到 40%。这不是联合界验收。
 - 刀4：无噪声差错为 0。0 dB 到 4 dB 严格下降，6 dB 和 8 dB 不超过前一档。0 dB 落在 2% 到 20%。不是 `apply_channel` 的样本 SNR 验收。
 - 刀5：ZF 和 MMSE 无噪声都是 0。各自 0 dB 到 4 dB 严格下降，6 dB 和 8 dB 不超过前一档。0 dB 落在 2% 到 25%。不要求 MMSE 每一档都低于 ZF。
+- 刀6：无噪声三档都是 8 个 ACK、0 个失败，信道使用分别是 256、544、128。`mcs_force = 3` 时，`snr_index` 0 和 1 选档 0，2 和 3 选档 1，4 以及无噪声的 6、7 选档 2。0 dB 上 `max_tx = 3` 的失败数必须少于 `max_tx = 1`，并且信道使用更多。这是这一套种子上的教学计数，不是 `simulate_link` 的 Clopper–Pearson 验收。
 
 这是为了抓住「噪声没加上」或「刻度错一个数量级」。**不是** Julia `test/` 里那种 Clopper–Pearson 对闭式的验收，也不是和 `demos/ber_bpsk.jl` 比比特。
 
@@ -204,7 +215,7 @@ Icarus Verilog 12.0、`NBITS = 16380`、当前种子的一次输出。0 dB 到 8
 
 硬 Viterbi 对齐整数版 `viterbi_decode`：支路度量是两比特汉明距离；候选度量严格更小才替换；回溯从路径度量最小的状态出发，平局取状态号最小的那个；不强制结束在状态 0；输出丢掉两个尾比特。测试台锁了 `10110010` 加尾的编码字、其中 1 个和 2 个编码比特的翻转，以及自由距事件 `100`。这些是同一套网格上的离散规则，所以硬比特可以对上。加上 AWGN 之后的误码计数不是和 Julia `randn` 或联合界的数值契约。
 
-**不做删余。** 2/3、3/4 留到以后。Julia 的硬判决接口没有删除符号，删余是在 LLR 里把丢掉的母比特写成 0，那是软判决路径。这里没有软度量，也没有 LLR。
+**不做删余。** 2/3、3/4 不在这条 FPGA 路线里。Julia 的硬判决接口没有删除符号，删余是在 LLR 里把丢掉的母比特写成 0，那是软判决路径。这里没有软度量，也没有 LLR。
 
 链路是：LFSR 信息比特 → 编码 → 每个编码比特做 BPSK → 两路独立的均匀和噪声 → 硬判决 → Viterbi → 只对信息比特计 BER。`snr_index` 是信息比特 \(E_b/N_0\)。名义码率 \(1/2\)、编码符号 \(E_s=1\)，所以 \(E_b=2\)，和测试里 `awgn(..., energy_per_bit=2)` 的噪声公式一样：\(\sigma = 1024/\sqrt{10^{\gamma/10}}\)。尾比特造成的速率损失没有再折进 \(\sigma\)。这张刻度是 `awgn_clt` 的 `SCALE_MODE=1`。刀1 的 `k=1` 表不动，未编码 BPSK 和这条链路的噪声不是同一套数，不能把两条 BER 曲线当成同一条 \(\sigma\)。
 
@@ -270,7 +281,7 @@ H = \begin{bmatrix} 1024 & 256 \\ 128 & 1024 \end{bmatrix},
 - 除法是组合逻辑的 64 位有符号除法，商朝 0 截断，再饱和到 16 位。没有流水，也没有时序报告。
 - 接收噪声的标准差是刀2 QPSK 刻度 \(\sigma\) 再乘 1024，好跟 H 的「1.0」对齐。MMSE 加到 Gram 对角上的却是 \(2\sigma^2\)，不是 y 上那个已经乘过 1024 的样本方差。差一个 \(1024^2\)。若把 y 的真实方差代进去，行列式装不进 64 位，商会被截成 0。所以这条 MMSE 比「真实 y 方差」更靠近 ZF，低信噪比下仍然通常少几个差错，但不是 Julia 浮点 MMSE 的逐位实现。
 
-不做的部分：`ml_detect` 的穷搜、`sic_detect`、Alamouti、`zf_precoder` / `svd_precoder`、注水，以及 `kronecker_channel`。相关信道留到以后。
+不做的部分：`ml_detect` 的穷搜、`sic_detect`、Alamouti、`zf_precoder` / `svd_precoder`、注水，以及 `kronecker_channel`。相关信道不在这条 FPGA 路线里。
 
 正交矩阵 \(\begin{bmatrix}724&724\\724&-724\end{bmatrix}\) 上，无噪声 ZF 在测试台里回到精确的 \(\pm 724\)。默认耦合矩阵上，无噪声 ZF 也回到 \(\pm 724\)；MMSE 在 \(\sigma^2=524288\)（0 dB 那一档）把幅度收到 409 和 \(-416\)，符号还在。
 
@@ -284,6 +295,83 @@ Icarus Verilog 12.0、256 个向量、1024 比特、当前种子的一次输出�
 | 4 dB | 12 | \(1.17 \times 10^{-2}\) | 8 | \(7.81 \times 10^{-3}\) |
 | 6 dB | 1 | \(9.77 \times 10^{-4}\) | 1 | \(9.77 \times 10^{-4}\) |
 | 8 dB | 1 | \(9.77 \times 10^{-4}\) | 1 | \(9.77 \times 10^{-4}\) |
+
+## 刀6：三档 MCS 和硬 Chase
+
+这一刀把前面的映射、噪声、卷积和硬 Viterbi 收成一条可仿真的闭环。它不是 NR 调度器，没有 HARQ 进程号，没有增量冗余，也没有 BICM。`link_mcs_harq` 按可综合 Verilog 写成一个状态机，把已有模块串起来；`crc16_ccitt` 是独立的小移位寄存器。本仓库没有为它们跑过 Vivado，也没有接到 `ax7020_bpsk_top` 的按键或 LED。板上顶层仍然只跑刀1 的 BPSK。
+
+每个传输块 16 个净荷比特，来自和刀1 相同的数据 LFSR（块与块之间不复位，一次 `start` 里连续往下走）。CRC-16/XMODEM 附加 16 位，高位先送。三档：
+
+| 档 | 内容 | 一次发送的符号 | 净荷 / 符号 |
+| --- | --- | ---: | ---: |
+| 0 | 未编码 BPSK | 32 | 16/32 = 0.5 |
+| 1 | (7, 5) 母码 + 两个 0 尾比特，再 BPSK | 68 | 16/68 |
+| 2 | 未编码 QPSK | 16 | 16/16 = 1 |
+
+频谱效率只数净荷。CRC 和卷积尾比特是开销。这不是 `teaching_mcs_table()` 的五行（净荷 48 或 41，含 QPSK 卷积、阵列 LDPC、16-QAM 和 64-QAM），也不是净荷 54 的删余表。
+
+`snr_index` 在这一刀里是 \(E_s/N_0\)，不是刀3 的信息比特 \(E_b/N_0\)。两路 `awgn_clt` 都把 `bits_per_symbol` 接成 1，用刀1 的 k=1 刻度：BPSK 幅度 1024，QPSK 幅度 724，符号能量都按 \(1024^2\) 对齐，\(\sigma^2\) 的目标和 `awgn(..., energy_per_bit=1)` 一样。`snr_index ≥ 6` 仍是无噪声。BPSK 只用 I 路噪声；Q 路发生器在 BPSK 的发送拍上也会往前走，序列是确定的，只是那一拍的样本没被加到符号上。
+
+选档：`mcs_force` 为 0、1、2 时强制该档；为 3 时看 `snr_index`。0 和 1（0 dB、2 dB）选档 0，2 和 3（4 dB、6 dB）选档 1，其余（含无噪声）选档 2。这些边界是这三档自己的，**不是** `teaching_amc_thresholds()` 的 \([-\infty, 2, 3, 7, 11]\) dB，也没有外环偏移。
+
+重传的是同一份符号。硬 Chase 对每个信道比特做有符号累加：硬判决 0 加 +1，硬判决 1 加 −1。合并后再判决，和为负才判 1，和为 0 判 0。卷积档把合并后的 68 个硬比特送进硬 Viterbi，再对 32 个译码比特做 CRC。不是 LLR 相加。CRC 通过就停，并给 `n_good` 加 16；否则若已发送次数还小于 `max_tx` 就再发一次，累加器不清零。`max_tx` 含第一次发送，0 被收成 1，最大 7（累加器是 4 位有符号）。失败的块丢掉，不进入 `n_good`。
+
+计数：
+
+- `n_ack`、`n_fail`：CRC 通过和最终失败的块数。BLER 用 `n_fail / NBLOCKS`。
+- `n_uses`：发出的信道符号数，重传也算。BPSK 一个符号一个比特，QPSK 一个符号两比特。
+- `n_good`：通过 CRC 的净荷比特。吞吐用 `n_good / n_uses`。
+
+默认 `NBLOCKS = 8`。Icarus Verilog 12.0、当前种子的一次输出：
+
+| 条件 | ACK | 失败 | 信道使用 | 净荷比特 | BLER | 吞吐 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 无噪声，档 0，`max_tx=1` | 8 | 0 | 256 | 128 | 0 | 0.5 |
+| 无噪声，档 1，`max_tx=1` | 8 | 0 | 544 | 128 | 0 | 16/68 |
+| 无噪声，档 2，`max_tx=1` | 8 | 0 | 128 | 128 | 0 | 1 |
+| 0 dB，档 0，`max_tx=1` | 1 | 7 | 256 | 16 | 7/8 | 16/256 |
+| 0 dB，档 0，`max_tx=3` | 2 | 6 | 768 | 32 | 6/8 | 32/768 |
+| 0 dB，档 1，`max_tx=1` | 6 | 2 | 544 | 96 | 2/8 | 96/544 |
+| 0 dB，档 1，`max_tx=3` | 8 | 0 | 952 | 128 | 0 | 128/952 |
+
+8 个块太短，不能拿来和 Julia 的 80 块吞吐扫频比，也不能说已经贴近联合界。0 dB 的未编码 BPSK 上，三次硬合并只多救回 1 块，吞吐还因为重传下降。卷积档在同一种子上从 2 块失败变成 0，信道使用从 544 增到 952。这只说明这条定点闭环里合并和早停在起作用。
+
+## 和 v1.0 的对照
+
+下表是这条 FPGA 路线相对 Julia **v1.0.0** 公开面的收口说明。左列是包里已经有的能力，右列是本目录做到哪。对齐一律是概念和定点骨架，不是数值契约。
+
+| Julia v1.0 | 本目录 | 结论 |
+| --- | --- | --- |
+| BPSK 硬映射 / 硬判决，实 AWGN，BER | 刀1 | 已覆盖。整数 ±1024，噪声是均匀和。 |
+| Gray QPSK，方形 Gray 16-QAM / 64-QAM 硬判决 | 刀2 | 已覆盖。不是 `PSK(4)`，门限平局规则可能和 `findmin` 不同。 |
+| 终止 (7, 5) 母码，硬 Viterbi | 刀3 | 已覆盖。无噪声硬比特可以对上固定向量。 |
+| CRC-16/XMODEM，`crc_append` / `crc_check` | 刀6 | 已覆盖。`"123456789"` 余数 `0x31C3`。 |
+| 离散 MCS、按 \(E_s/N_0\) 选档、Chase、BLER 和吞吐 | 刀6 | 教学骨架。三档、净荷 16、硬 ±1 合并、本地门限。不是五档表，不是软 LLR Chase，不是外环。 |
+| CP-OFDM：IFFT/FFT、循环前缀 | 刀4 | 骨架。N=16、CP=4、全数据子载波。没有同步，没有信道估计。 |
+| 平坦 MIMO 的 ZF / MMSE，理想 CSI | 刀5 | 已覆盖 2×2 固定实 H。不是 i.i.d. 瑞利，MMSE 的噪声方差刻度和浮点不完全同一套。 |
+| Fibonacci LFSR 扰码的移位规则 | 数据 `lfsr_fib` | 15 级多项式和全 1 种子的比特序列可以对上。噪声 LFSR 只借用 31 级多项式。 |
+
+刻意不做，也不在后续刀次里补：
+
+| 留下不做的 | 原因 |
+| --- | --- |
+| 软判决全链：逐比特 LLR、软 Viterbi、log-BCJR、SOVA、`demodulate_soft` | 刀3 和刀6 都停在硬度量。删余要往丢掉的母比特上写 LLR 0，所以一并不做。 |
+| 删余 2/3、3/4，以及 `teaching_punctured_mcs_table` | 没有删除符号，也没有那张净荷 54 的表。 |
+| BICM 和 BICM-ID | 没有比特交织，没有迭代解调。 |
+| LDPC（Gallager、Fan 阵列、NR 基图） | 五档表里的阵列码行不在 FPGA 上。 |
+| Turbo | 短帧 RSC 不在这条路线。 |
+| Kronecker、Loyka 指数相关、Alamouti、ML、SIC、SVD、注水 | 刀5 只做固定 H 上的 ZF/MMSE。 |
+| TR 38.901 的 CDL、几何信道；`TDLChannel` 的多径 | 噪声只有 AWGN。OFDM 前缀没有用来吸收时延。 |
+| EXIT 图 | 没有软信息的互信息估计。 |
+| 路线 C 的多用户 xApp、NR 调度器、资源栅格、O-RAN / eCPRI | 单链路教学计数器，没有用户间调度。 |
+| 增量冗余 | 重传的是同一份符号。 |
+| 外环 AMC | 门限不随 ACK/NACK 移动。 |
+| OFDM 的 STO/CFO、LS/MMSE 信道估计 | 刀4 假定对齐，H=1。 |
+| 线性均衡、LMS、DFE；Gardner、Costas、Schmidl–Cox | 没有定时或载波恢复。 |
+| BCH、Hamming、Reed–Solomon | 帧校验只用 CRC-16。 |
+| Rice、Jakes、Nakagami-m、MRC、脉冲成形、眼图 | 不在 PL 教学目录里。 |
+
+**完成声明。** FPGA 教学复刻到 v1 主链路，到刀6 为止，在 `fpga/ax7020` 收口。已经落地的是上表「已覆盖」和「教学骨架」那几行，并且十三个 Icarus 测试台可以跑完。边界也写在同一张表里：软判决全链、LDPC、Turbo、Kronecker、TR 38.901、EXIT、路线 C 不在这条 FPGA 路线中。没有比特流，没有板上实测，计数也不是和 Julia 浮点的逐块对照。
 
 ## 上板
 
