@@ -1,23 +1,24 @@
 # AX7020 教学链路
 
-黑金 ALINX **AX7020**（Zynq-7020，器件 **XC7Z020**，常见封装 CLG400）上的 **PL 教学**示例。和 Julia 包 `CommToolkit` 里的 `Modulation` / `Channel` / `Coding` / `OFDM` / `Metrics` / `Scrambling` **概念对齐**。定点噪声是 12 个离散均匀数的和，不是 `randn`。**不要把这里的误码率当成和 Julia 浮点仿真 bit-exact，也不要当成已经和闭式公式做过区间验收。** 本目录没有附带定点对照的 Julia 脚本；没做那一步，就不声称数值一致。
+黑金 ALINX **AX7020**（Zynq-7020，器件 **XC7Z020**，常见封装 CLG400）上的 **PL 教学**示例。和 Julia 包 `CommToolkit` 里的 `Modulation` / `Channel` / `Coding` / `OFDM` / `MIMO` / `Metrics` / `Scrambling` **概念对齐**。定点噪声是 12 个离散均匀数的和，不是 `randn`。**不要把这里的误码率当成和 Julia 浮点仿真 bit-exact，也不要当成已经和闭式公式做过区间验收。** 本目录没有附带定点对照的 Julia 脚本；没做那一步，就不声称数值一致。
 
 | 刀 | 内容 | 状态 |
 | --- | --- | --- |
 | 1 | BPSK + 实 AWGN + BER | 已在 main |
 | 2 | QPSK，以及方形 Gray 16-QAM、64-QAM 的硬映射 / 硬判决 | 已在 main |
 | 3 | K=3 (7, 5) 卷积母码 + 硬判决 Viterbi，接到 BPSK | 已在 main |
-| 4 | N=16 的 CP-OFDM：IFFT/FFT、循环前缀、QPSK 子载波 | 当前目录 |
-| 以后 | 删余、软判决、STO/CFO、信道估计、MIMO、LDPC/Turbo | 不做 |
+| 4 | N=16 的 CP-OFDM：IFFT/FFT、循环前缀、QPSK 子载波 | 已在 main |
+| 5 | 2×2 平坦 MIMO，理想 CSI 下的 ZF 与 MMSE，QPSK | 当前目录 |
+| 以后 | 删余、软判决、STO/CFO、OFDM 信道估计、ML/Alamouti/Kronecker、LDPC/Turbo | 不做 |
 
-刀1 的链路是：PRBS 比特 → BPSK 映射 → 实 AWGN → 硬判决 → 差错计数。刀2 在旁边加复星座，噪声源和差错计数的做法不变。刀3 在 BPSK 前面加上 (7, 5) 编码，后面加上硬 Viterbi，误码改数信息比特。刀4 是 16 点 CP-OFDM：QPSK 子载波、IFFT、循环前缀、可选时域噪声、去前缀、FFT、硬判决。
+刀1 的链路是：PRBS 比特 → BPSK 映射 → 实 AWGN → 硬判决 → 差错计数。刀2 在旁边加复星座，噪声源和差错计数的做法不变。刀3 在 BPSK 前面加上 (7, 5) 编码，后面加上硬 Viterbi，误码改数信息比特。刀4 是 16 点 CP-OFDM：QPSK 子载波、IFFT、循环前缀、可选时域噪声、去前缀、FFT、硬判决。刀5 是固定的 2×2 平坦信道，理想 CSI，ZF 和 MMSE 硬判决。
 
 ## 边界
 
 - 教学级定点，不是量产调制解调器。没有 AGC、成形滤波、定时或载波恢复。
 - 不是 NR，不是 LTE，不是 O-RAN。没有资源栅格、前传、eCPRI 或 xApp。
 - 和 Julia `CommToolkit` 是概念对照，不是数值契约。数据 LFSR 的移位规则可以和 `lfsr_sequence` 对上（见下表）；噪声和 BER 不对上。
-- 刀1 是 **BPSK + 实 AWGN + BER**。刀2 是 **QPSK** 和方形 Gray **16-QAM / 64-QAM** 硬判决。刀3 是终止的 **K=3 (7, 5) 卷积母码**和**硬判决 Viterbi**。刀4 是 **N=16、CP=4** 的 CP-OFDM 骨架，子载波用 QPSK。仍然不做删余、软判决、STO/CFO、LS/MMSE、多径、MIMO，也不是 NR LDPC 或 Turbo。
+- 刀1 是 **BPSK + 实 AWGN + BER**。刀2 是 **QPSK** 和方形 Gray **16-QAM / 64-QAM** 硬判决。刀3 是终止的 **K=3 (7, 5) 卷积母码**和**硬判决 Viterbi**。刀4 是 **N=16、CP=4** 的 CP-OFDM 骨架。刀5 是 **2×2 平坦 MIMO** 的 ZF 与 MMSE。仍然不做删余、软判决、STO/CFO、OFDM 信道估计、ML 穷搜、Alamouti、SVD 预编码、Kronecker 相关，也不是 NR LDPC 或 Turbo。
 - 引脚是 AX7020 手册里的常见占位。**没有在这块板上实测过**，综合和时序也没有在本仓库里跑过。
 
 GitHub Actions 仍只测 Julia 包（`src/`、`ext/`）。这里不进那个覆盖率，CI 也不跑 Vivado 或 Icarus。
@@ -39,6 +40,8 @@ GitHub Actions 仍只测 Julia 包（`src/`、`ext/`）。这里不进那个覆�
 | `fft16` 的 IFFT / FFT | `FFTW.ifft` / `fft` | IFFT 每级右移 1 位，四级合起来除以 16。FFT 不除以 N。旋转因子是 1024 倍的余弦，乘完再右移 10 位。无噪声时 `fft(ifft(X))` 回到 X 附近几位，不是逐位相同。 |
 | CP 长度 4，加在 16 点前面 | `generate_ofdm_symbol` 的前缀 | 前缀是时域块的最后 4 个样本。接收丢掉前 4 个再做 FFT。长度不是 Julia 默认的 64/16，只是同一个 1/4。 |
 | 16 个 QPSK 子载波，含 DC | `OFDMParams` 的数据/导频/保护 | **不是**那张默认图。没有保护带，没有导频，没有把 DC 置零。 |
+| `mimo2x2_detect` | `zf_detect` / `mmse_detect` | 2×2，\(G=H^{\mathrm{H}}H+\sigma^2 I\)，再 \(G^{-1}H^{\mathrm{H}}y\)。`noise_var=0` 是 ZF。除法朝 0 截断。不是 `pinv` 的逐位结果。 |
+| 链路里的固定 H | `mimo_channel` | **不是** i.i.d. 瑞利抽样，也不对 H 做平均。默认是实矩阵 `[[1024,256],[128,1024]]`，1024 表示 1。 |
 
 想自己做定点对照时，按下一节的 AMP、均值 1530、算术右移（负数朝 \(-\infty\) 截断）和 README 里的种子，在 Julia 里重写**整数**模型，再比 `n_err`。浮点 `awgn` 对不上这些比特，这是预期的。
 
@@ -98,6 +101,8 @@ fpga/ax7020/
   rtl/conv_bpsk_awgn_ber.v  刀3 链路：编码、BPSK、AWGN、译码、BER
   rtl/fft16.v               16 点基-2 FFT / IFFT
   rtl/ofdm16_qpsk_ber.v     刀4 链路：QPSK、IFFT、CP、FFT、BER
+  rtl/mimo2x2_detect.v      2×2 ZF/MMSE
+  rtl/mimo2x2_qpsk_ber.v    刀5 链路：固定 H、QPSK、AWGN、BER
   tb/tb_bpsk_unit.v         刀1：映射、判决、LFSR、噪声刻度
   tb/tb_bpsk_awgn_ber.v     刀1：BER 对 Eb/N0
   tb/tb_ax7020_top.v        顶层复位和按键的短冒烟
@@ -107,6 +112,8 @@ fpga/ax7020/
   tb/tb_conv_bpsk_ber.v     刀3：编码 BPSK 的信息比特 BER
   tb/tb_fft16.v             刀4：直流冲激和 QPSK 的 IFFT/FFT 往返
   tb/tb_ofdm16_ber.v        刀4：CP-OFDM 的 BER
+  tb/tb_mimo2x2_unit.v      刀5：ZF/MMSE 的定点向量
+  tb/tb_mimo2x2_ber.v       刀5：固定信道上的 BER
   constr/ax7020_bpsk.xdc    占位引脚，需按板本改。刀2 及以后没有新管脚
   sim/run_iverilog.sh       本地 Icarus 仿真
 ```
@@ -125,7 +132,7 @@ cd fpga/ax7020
 bash sim/run_iverilog.sh
 ```
 
-脚本依次跑九个测试台（刀1 三个，刀2 两个，刀3 两个，刀4 两个）。编译带 `-I rtl`，因为编码器和译码器 include 同目录的 `conv75_trellis.vh`。每个测试台打印一行 `PASS`。刀1 的 `NBITS = 16384`。刀2 的 `NBITS = 16380`。刀3 每帧 64 个信息比特、32 帧。刀4 是 32 个 OFDM 符号、每符号 32 比特，共 1024 比特。种子写在 RTL 里。同一版本的 Icarus 应得到同一张表。
+脚本依次跑十一个测试台（刀1 三个，刀2 两个，刀3 两个，刀4 两个，刀5 两个）。编译带 `-I rtl`，因为编码器和译码器 include 同目录的 `conv75_trellis.vh`。每个测试台打印一行 `PASS`。刀1 的 `NBITS = 16384`。刀2 的 `NBITS = 16380`。刀3 每帧 64 个信息比特、32 帧。刀4 是 32 个 OFDM 符号、共 1024 比特。刀5 是 256 个 2×2 向量、共 1024 比特。种子写在 RTL 里。同一版本的 Icarus 应得到同一张表。
 
 通过条件：
 
@@ -136,6 +143,7 @@ bash sim/run_iverilog.sh
 - 刀2：QPSK 的 0 dB 落在 4% 到 15%，4 dB 落在 0.4% 到 4%。16-QAM 的 0 dB 落在 6% 到 25%。64-QAM 的 0 dB 落在 8% 到 35%。三种都要求 0 dB 到 8 dB 严格下降。
 - 刀3：无噪声信息比特差错为 0。0 dB、2 dB、4 dB 的差错严格下降，6 dB 和 8 dB 不超过前一档。0 dB 落在 2% 到 40%。这不是联合界验收。
 - 刀4：无噪声差错为 0。0 dB 到 4 dB 严格下降，6 dB 和 8 dB 不超过前一档。0 dB 落在 2% 到 20%。不是 `apply_channel` 的样本 SNR 验收。
+- 刀5：ZF 和 MMSE 无噪声都是 0。各自 0 dB 到 4 dB 严格下降，6 dB 和 8 dB 不超过前一档。0 dB 落在 2% 到 25%。不要求 MMSE 每一档都低于 ZF。
 
 这是为了抓住「噪声没加上」或「刻度错一个数量级」。**不是** Julia `test/` 里那种 Clopper–Pearson 对闭式的验收，也不是和 `demos/ber_bpsk.jl` 比比特。
 
@@ -236,6 +244,46 @@ Icarus Verilog 12.0、32 个符号、1024 比特的一次输出。直流冲激�
 | 4 dB | 9 | \(8.79 \times 10^{-3}\) |
 | 6 dB | 2 | \(1.95 \times 10^{-3}\) |
 | 8 dB | 0 | 0 |
+
+## 刀5：2×2 平坦 MIMO 的 ZF 与 MMSE
+
+两根发射、两根接收，一个时隙一个 QPSK 向量。信道在整段仿真里固定，检测器知道这份 H，也就是理想 CSI。模型是 \(y = Hx + n\)，和 `apply_mimo` 同一件事。默认
+
+\[
+H = \begin{bmatrix} 1024 & 256 \\ 128 & 1024 \end{bmatrix},
+\]
+
+实数，1024 表示 1。两列不正交，所以有干扰。这不是 `mimo_channel` 的 i.i.d. 瑞利，也不对 H 做遍历平均。换 H 要把参数传进 `mimo2x2_qpsk_ber`。
+
+检测和 Julia 一样：
+
+\[
+\hat x = (H^{\mathrm{H}} H + \sigma^2 I)^{-1} H^{\mathrm{H}} y.
+\]
+
+`MODE=0` 把 \(\sigma^2\) 置 0，就是 ZF。`MODE=1` 是 MMSE。硬判决只看实部和虚部的符号，0 判成比特 0，和 `qpsk_slicer` 一样。
+
+数值边界要单独看，不能当成 `pinv`：
+
+- H 的实部、虚部用有符号 16 位，1024 表示 1，绝对值大约别超过 8192，否则 Gram 的平方和会溢出。
+- 2×2 的行列式用有符号 64 位。`det ≤ 1024` 当成奇异，输出 0。默认这组 H 的行列式大约 \(10^{12}\)，离这条线很远。
+- 除法是组合逻辑的 64 位有符号除法，商朝 0 截断，再饱和到 16 位。没有流水，也没有时序报告。
+- 接收噪声的标准差是刀2 QPSK 刻度 \(\sigma\) 再乘 1024，好跟 H 的「1.0」对齐。MMSE 加到 Gram 对角上的却是 \(2\sigma^2\)，不是 y 上那个已经乘过 1024 的样本方差。差一个 \(1024^2\)。若把 y 的真实方差代进去，行列式装不进 64 位，商会被截成 0。所以这条 MMSE 比「真实 y 方差」更靠近 ZF，低信噪比下仍然通常少几个差错，但不是 Julia 浮点 MMSE 的逐位实现。
+
+不做的部分：`ml_detect` 的穷搜、`sic_detect`、Alamouti、`zf_precoder` / `svd_precoder`、注水，以及 `kronecker_channel`。相关信道留到以后。
+
+正交矩阵 \(\begin{bmatrix}724&724\\724&-724\end{bmatrix}\) 上，无噪声 ZF 在测试台里回到精确的 \(\pm 724\)。默认耦合矩阵上，无噪声 ZF 也回到 \(\pm 724\)；MMSE 在 \(\sigma^2=524288\)（0 dB 那一档）把幅度收到 409 和 \(-416\)，符号还在。
+
+Icarus Verilog 12.0、256 个向量、1024 比特、当前种子的一次输出：
+
+| \(E_b/N_0\) | ZF 差错 | ZF BER | MMSE 差错 | MMSE BER |
+| --- | ---: | ---: | ---: | ---: |
+| 无噪声 | 0 | 0 | 0 | 0 |
+| 0 dB | 84 | \(8.20 \times 10^{-2}\) | 79 | \(7.71 \times 10^{-2}\) |
+| 2 dB | 39 | \(3.81 \times 10^{-2}\) | 37 | \(3.61 \times 10^{-2}\) |
+| 4 dB | 12 | \(1.17 \times 10^{-2}\) | 8 | \(7.81 \times 10^{-3}\) |
+| 6 dB | 1 | \(9.77 \times 10^{-4}\) | 1 | \(9.77 \times 10^{-4}\) |
+| 8 dB | 1 | \(9.77 \times 10^{-4}\) | 1 | \(9.77 \times 10^{-4}\) |
 
 ## 上板
 
