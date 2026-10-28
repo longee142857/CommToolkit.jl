@@ -88,6 +88,7 @@ ext/CommToolkitPlotsExt.jl
 test/                 闭式对照与单元测试
 docs/                 公开接口、验证矩阵、边界、已知限制，以及 Documenter API 参考
 demos/                可单独运行的脚本，不在测试范围内
+fpga/ax7020/          AX7020（Zynq-7020）教学 PL：BPSK + AWGN + BER。概念对照，不是数值契约。见该目录 README。
 ```
 
 API 参考由 Documenter 从导出函数的 docstring 生成，页面只含接口说明。
