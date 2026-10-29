@@ -4,9 +4,9 @@
 
 编码和交织之后，比特错误和帧错误不是独立伯努利试验。区间仍按独立计数使用，和现有测试一样。
 
-`demos/` 不在 `Pkg.test` 里。`demos/ber_16qam.jl` 画的是高信噪比近似，不是 Cho–Yoon 精确式。`demos/ber_comparison.jl` 只画仿真点，没有闭式曲线。`demos/validation_figure.jl` 的四条曲线是 v0.6 之前的图：AWGN 下的 BPSK、QPSK、16-QAM，以及平坦瑞利下的 BPSK。`demos/link_puncture_bicm.jl` 打印删余表的固定行、自适应、Chase 与 `harq=:ir` 的对照，以及 8-PSK 的 1 次与 4 次迭代。`demos/cdl_ofdm.jl` 打印 CDL 剖面与量化抽头、静态 drop 的 OFDM 烟测（只有仿真点），以及平坦退化的瑞利对照。
+`demos/` 不在 `Pkg.test` 里。`demos/ber_16qam.jl` 画的是高信噪比近似，不是 Cho–Yoon 精确式。`demos/ber_comparison.jl` 只画仿真点，没有闭式曲线。`demos/validation_figure.jl` 的四条曲线是 v0.6 之前的图：AWGN 下的 BPSK、QPSK、16-QAM，以及平坦瑞利下的 BPSK。`demos/link_puncture_bicm.jl` 打印删余表的固定行、自适应、Chase 与 `harq=:ir` 的对照，以及 8-PSK 的 1 次与 4 次迭代。`demos/cdl_ofdm.jl` 打印 CDL 剖面与量化抽头、静态 drop 的 OFDM 烟测（只有仿真点），以及平坦退化的瑞利对照。`demos/xapp_multiuser.jl` 打印教学迷你 xApp 的固定基线与规则表对照表（只有仿真点），不加载 Plots。
 
-统计规则和公式出处也写在 `test/reference.jl` 文件头。下表把每个测试文件都点到：`test/algebraic.jl`、`test/bicm.jl`、`test/cdl.jl`、`test/contract.jl`、`test/evm.jl`、`test/exit.jl`、`test/interleave.jl`、`test/jakes_nakagami.jl`、`test/kronecker_mimo.jl`、`test/ldpc.jl`、`test/link.jl`、`test/lms_dfe.jl`、`test/psk_rice_mrc.jl`、`test/pulse_fir.jl`、`test/reference.jl`、`test/runtests.jl`、`test/scrambling.jl`、`test/sova.jl`、`test/sync.jl`、`test/turbo.jl`、`test/waterfill.jl`。
+统计规则和公式出处也写在 `test/reference.jl` 文件头。下表把每个测试文件都点到：`test/algebraic.jl`、`test/bicm.jl`、`test/cdl.jl`、`test/contract.jl`、`test/evm.jl`、`test/exit.jl`、`test/interleave.jl`、`test/jakes_nakagami.jl`、`test/kronecker_mimo.jl`、`test/ldpc.jl`、`test/link.jl`、`test/lms_dfe.jl`、`test/psk_rice_mrc.jl`、`test/pulse_fir.jl`、`test/reference.jl`、`test/runtests.jl`、`test/scrambling.jl`、`test/sova.jl`、`test/sync.jl`、`test/turbo.jl`、`test/waterfill.jl`、`test/xapp.jl`。
 
 | 模块 | 量 | 闭式或参照 | 测试 | 演示 |
 |---|---|---|---|---|
@@ -40,6 +40,7 @@
 | Link | 五档 MCS、Chase 合并、门限自适应 | 无闭式 BLER。无噪声时每一档吞吐等于该档频谱效率。``E_s/N_0 = 5\,\mathrm{dB}`` 的 16-QAM 卷积码上，3 次 Chase 相对单次传输的 CRC 失败率区间（100 个块）互不重叠，合并后吞吐更高。5 dB 的自适应（QPSK 阵列 LDPC）吞吐下界高于固定 BPSK，也高于固定 64-QAM；16 dB 的自适应（64-QAM）下界高于固定 BPSK。门限来自 `teaching_amc_thresholds` | `test/link.jl` | `demos/link_mcs_harq.jl` |
 | Link | 删余卷积 MCS、同一删余字的 Chase、链路内 BICM | 无新的闭式 BLER。种子 `0x0c0de1162`，每点 80 块，Clopper–Pearson ``\alpha = 10^{-4}``。3 dB 自适应（QPSK 1/2）吞吐下界高于固定 BPSK，也高于固定 16-QAM；10 dB 自适应（16-QAM）下界高于固定 BPSK。2 dB 的 QPSK 3/4，3 次 Chase 相对单次的 CRC 失败率区间分开。8-PSK 集合分割、``E_s/N_0 = 6\,\mathrm{dB}``：链路内 4 次迭代相对 1 次，净荷比特错误率和 CRC 失败率的区间分开。5 dB 上码率 2/3 与 3/4 几乎打平，不拿来做判据。门限是 `teaching_punctured_amc_thresholds`，不能套到五档表 | `test/link.jl`；删余 BICM 的无噪声往返在 `test/bicm.jl` | `demos/link_puncture_bicm.jl` |
 | Link | `harq=:ir` 教学增量冗余（互补删余图案、按母码位软合并） | 无闭式 BLER。种子 `0x0c0de1162`，QPSK 3/4，400 块，Clopper–Pearson ``\alpha = 10^{-4}``。``E_s/N_0 = 1\,\mathrm{dB}``、`max_tx=3`：IR 与 Chase 的 CRC 失败率区间互相重叠，各自点估计落在对方区间内（49/400 对 51/400），IR 信道使用更少、吞吐更高，即 IR 在该点与 Chase 打平且更省符号。2 dB、`max_tx=2`：Chase 的 NACK 点估计明显更低（96/400 对 136/400，此样本量下区间仍重叠），IR 吞吐更高。`harq=:chase` 与省略该关键字逐比特一致；`max_tx=1` 与码率 1/2 行上 `:ir` 退化为 `:chase`。参照 Hagenauer，IEEE Trans. Commun. 36(4):389–400，1988（速率兼容删余）与 Chase 1985 | `test/link.jl` | `demos/link_puncture_bicm.jl` |
+| XApp | 教学多用户 KPI→动作迷你 xApp（1.2.0，路线 C；非 O-RAN） | 无闭式 BLER。确定性部分：构造与参数校验、Jain 指数定义值、规则表在合成 KPI 上的份额排序 / 走档夹持 / 预算投影与 MCS 跟随、无噪声闭环的精确频谱效率与 Jain 值、最大余数分块并列归下标小者、`:awgn` 与 `:rayleigh` 两种信道下同种子逐字段复现。种子对照：3 个 UE（0、3、6 dB），20 轮 × 30 块，固定 QPSK-1/2 均匀份额基线对规则表，两臂各 600 块且各臂 NACK ≥ 30，交付块数的 Clopper–Pearson 区间（``\alpha = 10^{-4}``）分开；系统吞吐与 Jain 公平是同一随机流上的点估计对照，不是区间判据。份额规则是 Tse 与 Viswanath §6.3 的比例公平风味启发式；Jain 指数见 Jain、Chiu 与 Hawe，DEC-TR-301，1984；切换门限是 `teaching_punctured_amc_thresholds`，不是 NR CQI | `test/xapp.jl` | `demos/xapp_multiuser.jl` |
 | Equalization | 块 ZF / MMSE | 无噪声时反演 `apply_fir` 的全长卷积。文档字符串引用 Proakis 与 Salehi §9.4 与 Tse 与 Viswanath，《Fundamentals of Wireless Communication》，2005，§8.3。测试不对照误码闭式 | `test/runtests.jl`；`test/pulse_fir.jl` | `demos/ber_equalizer.jl`；`demos/pulse_fir_link.jl` |
 | Equalization | 符号率 LMS | 无噪声时抽头朝这条回归量的批最小二乘解走，末段误差低于开头。同一条确定性噪声记录上，更大的稳定步长留下更大的末段均方误差。不对照 Widrow 超额 MSE 闭式 | `test/lms_dfe.jl` | 无 |
 | Equalization | 有限长块 DFE | 判决正确时，ZF-DFE 把全列秩 FIR 恢复到舍入误差。第一个反馈符号被换成错误值时，后面的硬判决可以成串翻掉。无闭式 | `test/lms_dfe.jl` | 无 |
@@ -58,7 +59,7 @@
 
 ## 闭式摘录
 
-下列句子里，Kronecker 那一条是 0.9.3 加上的，定义在 `kronecker_channel` 的文档字符串，不在 `test/reference.jl`。1.0.0 不新增闭式，也不改这张表。1.1.0 只在矩阵里增加短 Reed–Solomon 一行，它没有误码闭式，本节的公式清单不变。1.1.1 增加一条数值积分对照（不是闭式）：BIAWGN 一致 LLR 的互信息 ``I = 1 - \mathbb{E}[\log_2(1+e^{-L})]``，``L = 2y/\sigma^2``，``y \sim \mathcal{N}(1, \sigma^2)``，Simpson 积分在 `test/reference.jl` 的 `biawgn_llr_mi`，它是 ``J(2/\sigma)`` 的精确值（Hagenauer，Proc. 12th EUSIPCO，2004）。1.1.2 增加 `harq=:ir` 教学增量冗余一行：没有闭式 BLER，是种子 `0x0c0de1162` 下 IR 对 Chase 的两个蒙特卡洛对照点，公式清单不变。1.1.3 增加教学 CDL 一行：不新增公式，唯一闭式锚点是完全合并的平坦退化回到 `ber_bpsk_rayleigh`，色散情形只有功率与形状统计和无噪声 OFDM 烟测。其余与 v0.9.0 的 README 验证段相同，公式仍以 `test/reference.jl` 为准。
+下列句子里，Kronecker 那一条是 0.9.3 加上的，定义在 `kronecker_channel` 的文档字符串，不在 `test/reference.jl`。1.0.0 不新增闭式，也不改这张表。1.1.0 只在矩阵里增加短 Reed–Solomon 一行，它没有误码闭式，本节的公式清单不变。1.1.1 增加一条数值积分对照（不是闭式）：BIAWGN 一致 LLR 的互信息 ``I = 1 - \mathbb{E}[\log_2(1+e^{-L})]``，``L = 2y/\sigma^2``，``y \sim \mathcal{N}(1, \sigma^2)``，Simpson 积分在 `test/reference.jl` 的 `biawgn_llr_mi`，它是 ``J(2/\sigma)`` 的精确值（Hagenauer，Proc. 12th EUSIPCO，2004）。1.1.2 增加 `harq=:ir` 教学增量冗余一行：没有闭式 BLER，是种子 `0x0c0de1162` 下 IR 对 Chase 的两个蒙特卡洛对照点，公式清单不变。1.1.3 增加教学 CDL 一行：不新增公式，唯一闭式锚点是完全合并的平坦退化回到 `ber_bpsk_rayleigh`，色散情形只有功率与形状统计和无噪声 OFDM 烟测。1.2.0 增加教学 xApp 一行：不新增公式，锚点是种子 `0x0c0de1162` 下规则表对固定基线的交付块数区间对照，加上无噪声与合成 KPI 上的确定性检查，公式清单不变。其余与 v0.9.0 的 README 验证段相同，公式仍以 `test/reference.jl` 为准。
 
 - AWGN 下 BPSK 与 Gray QPSK：``Q(\sqrt{2 E_b/N_0})``。Proakis 与 Salehi，第 5 版，§5.2。
 - 方形 Gray M-QAM 的精确平均误比特率：Cho 与 Yoon，2002，式 (16)。图中 16-QAM 用的是这个精确式，不是高信噪比近似。

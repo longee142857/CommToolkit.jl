@@ -12,6 +12,7 @@ makedocs(;
         CommToolkit.BICM,
         CommToolkit.EXIT,
         CommToolkit.Link,
+        CommToolkit.XApp,
         CommToolkit.Equalization,
         CommToolkit.OFDM,
         CommToolkit.MIMO,
@@ -30,9 +31,10 @@ makedocs(;
         canonical = "https://longee142857.github.io/CommToolkit.jl/",
         inventory_version = string(pkgversion(CommToolkit)),
         # One API page. 0.8.5 was under the previous 450 KiB cap; BICM-ID
-        # docstrings share that same page.
+        # docstrings share that same page. 1.2.0 adds the XApp docstrings:
+        # 415 KiB rendered, still under the hard threshold.
         size_threshold = 520 * 1024,
-        size_threshold_warn = 400 * 1024,
+        size_threshold_warn = 460 * 1024,
     ),
     pages = [
         "API Reference" => "index.md",
