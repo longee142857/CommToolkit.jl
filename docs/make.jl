@@ -10,6 +10,7 @@ makedocs(;
         CommToolkit.Coding,
         CommToolkit.Interleaving,
         CommToolkit.BICM,
+        CommToolkit.EXIT,
         CommToolkit.Link,
         CommToolkit.Equalization,
         CommToolkit.OFDM,
@@ -22,7 +23,7 @@ makedocs(;
     sitename = "CommToolkit.jl",
     authors = "刘恒宇",
     # Sidebar selector. Inventory header uses the same string, which is
-    # `Project.toml`'s version. 1.0.0 freezes that number.
+    # `Project.toml`'s version. SemVer: 1.x only adds names.
     version = string(pkgversion(CommToolkit)),
     format = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",

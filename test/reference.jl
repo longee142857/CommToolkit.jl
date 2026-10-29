@@ -20,6 +20,11 @@
 # Soft-decision pairwise error on antipodal AWGN: Proakis and Salehi, 5th ed., §8.2,
 #   P2(d) = Q(sqrt(2 d R Eb/N0)) with R = 1/2.
 # Clopper–Pearson interval: Clopper and Pearson, Biometrika 26(4):404–413, 1934.
+# BIAWGN consistent-LLR mutual information (1.1.1, EXIT tests): the identity
+#   I = 1 − E[log2(1 + exp(−L))] on L = 2y/σ², y ~ N(1, σ²), Hagenauer,
+#   Proc. 12th EUSIPCO, Vienna, 2004, pp. 1541–1548; histogram form ten Brink,
+#   IEEE Trans. Commun. 49(10):1727–1737, 2001. No elementary closed form:
+#   numerical Simpson integration, the exact value that exit_j(2/σ) approximates.
 
 using SpecialFunctions
 
@@ -55,6 +60,23 @@ function ber_square_mqam(M::Int, γb::Real)
 end
 
 ber_bpsk_rayleigh(γb::Real) = 0.5 * (1 - sqrt(float(γb) / (1 + float(γb))))
+
+"""BIAWGN capacity at per-component noise variance σ², unit symbol energy.
+The mutual information of the consistent LLR L = 2y/σ², y ~ N(1, σ²), and the
+exact integral that the Gaussian-symmetric approximation `exit_j(2/√σ²)`
+approximates. Numerical integration, not a closed form."""
+function biawgn_llr_mi(σ2::Real)
+    σ2 = float(σ2)
+    σ2 > 0 || throw(ArgumentError("noise variance must be positive"))
+    σ = sqrt(σ2)
+    invln2 = inv(log(2))
+    function integrand(y)
+        x = -2y / σ2
+        sp = x > 0 ? x + log1p(exp(-x)) : log1p(exp(x))
+        return (1 - sp * invln2) * exp(-abs2(y - 1) / (2σ2)) / (σ * sqrt(2π))
+    end
+    return _simpson(integrand, 1 - 12σ, 1 + 12σ, 8192)
+end
 
 function _simpson(f, a::Real, b::Real, n::Int)
     a = float(a)

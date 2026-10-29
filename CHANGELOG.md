@@ -1,13 +1,34 @@
 # 变更记录
 
-## 1.1.0
+## 1.1.2
 
-`simulate_link` 增加关键字 `harq`：`:chase`（默认，与 1.0.0 逐比特一致）或 `:ir`（教学增量冗余）。这是 1.x 内的增加：稳定导出清单不增删名字，已有位置参数和返回值不变，v1.0.0 的全部默认行为不变。不是 NR 速率匹配，不是 RV0–RV3，也不是 NR HARQ 实体。记为 1.1.0，不升主版本。
+`simulate_link` 增加关键字 `harq`：`:chase`（默认，与 1.0.0 逐比特一致）或 `:ir`（教学增量冗余）。坐在 1.1.1（短 RS、EXIT）之上，是 1.x 内的增加：稳定导出清单不增删名字，已有位置参数和返回值不变，v1.0.0 的全部默认行为不变。不是 NR 速率匹配，不是 RV0–RV3，也不是 NR HARQ 实体。1.1.0 与 1.1.1 已被并行的短 RS 与 EXIT 两刀占用，这一刀记为补丁 1.1.2，不升主版本。
 
 - 增量冗余：`simulate_link(...; harq=:ir)`，只接 `:viterbi` 接收机与卷积行。删余行上第 1 次发送 `puncture_mask` 图案 A，第 2 次发补图案（A 删掉的母码比特），更长的循环按 A、B 交替。比特 LLR 按母码位相加（擦除位仍是 LLR 0，复用 `depuncture`），所以第 2 次之后译码器见过每个母码比特一次，等效码率从删余码率降到母码 1/2。补字比 A 字短，`:ir` 重传花的信道使用更少，`n_channel_uses` 按实际发送计数。CRC 仍决定 ACK，`max_tx` 语义不变。码率 1/2 的行没有可补的比特，`:ir` 退化为 `:chase`；`max_tx=1` 只发图案 A，与 `:chase` 一致。LDPC 行、`receiver=:bicm`、补字长度不整除每符号比特数，都在仿真开始前报 `ArgumentError`。
 - 诚实的对照（静态 AWGN，``K = 3`` 母码，种子 `0x0c0de1162`，QPSK 3/4，400 块，Clopper–Pearson ``\alpha = 10^{-4}``）：1 dB、`max_tx=3` 时 IR 与 Chase 的 CRC 失败率区间互相重叠（49/400 对 51/400），IR 少花信道使用、吞吐更高；2 dB、`max_tx=2` 时 Chase 的 NACK 点估计明显更低（96/400 对 136/400），因为 Chase 把删余字的能量翻倍，胜过把每个母码比特各看一次。这是小码在静态信道上的教科书式折中，不宣称衰落分集增益。参照 Hagenauer，IEEE Trans. Commun. 36(4):389–400，1988；Chase，IEEE Trans. Commun. 33(5):385–393，1985。
 - 测试：`test/link.jl` 增加「HARQ mode keyword and IR fallbacks」与「Incremental redundancy versus Chase」。前者锁定 `:chase` 默认回归（显式 `harq=:chase` 与省略该关键字的报告逐字段一致）、`max_tx=1` 与码率 1/2 的退化、无噪声形状、自适应策略与 `:ir` 的组合，以及关键字参数检查。后者是上面的两个对照点。
-- 文档与契约：`docs/src/api.md` 注明 1.1.0 只加关键字、不增删导出名字；`docs/src/limitations.md`、`docs/src/boundaries.md`、`docs/src/validation.md`、`docs/src/index.md` 与 README 改成与这条链路一致。`demos/link_puncture_bicm.jl` 增加 IR×3 列与 `max_tx=2` 的诚实角落。`test/runtests.jl` 与 `test/contract.jl` 的版本断言升到 `v"1.1.0"`。没有触碰 `fpga/ax7020`。
+- 文档与契约：`docs/src/api.md` 注明 1.1.2 只加关键字、不增删导出名字；`docs/src/limitations.md`、`docs/src/boundaries.md`、`docs/src/validation.md`、`docs/src/index.md` 与 README 改成与这条链路一致。`demos/link_puncture_bicm.jl` 增加 IR×3 列与 `max_tx=2` 的诚实角落。`test/runtests.jl` 与 `test/contract.jl` 的版本断言升到 `v"1.1.2"`。没有触碰 `fpga/ax7020`，也没有触碰 1.1.0 的 `src/algebraic.jl` RS 面与 1.1.1 的 `src/exit.jl`。
+
+## 1.1.1
+
+EXIT 图教学测量（软信息互信息）。这是 1.x 的加法：稳定面新增 `EXIT` 子模块的 8 个名字，1.0.0 与 1.1.0 已有名字的位置参数、返回值与语义都不变，`bicm_demap`、`bcjr_decode`、`ldpc_decode_details` 一个字符都没有改。教学 EXIT / 直方图互信息，不是 NR LDPC 的 EXIT 生产工具：没有密度进化，没有次数分布优化，没有 3GPP 码或速率匹配，也没有迭代轨迹跟踪。有意留在范围之外的仍是 TR 38.901 的 CDL、路线 C 的多用户 xApp、NR LDPC。
+
+- 互信息估计：`exit_mi_soft(llr, bits)` 是 Hagenauer（Proc. 12th EUSIPCO，Vienna，2004，pp. 1541–1548）的无直方图软估计 ``1 - \frac1N\sum\log_2(1+e^{-(1-2b)L})``，假定等概比特与一致（真后验）LLR；单类输入合法（全零字惯例），``\pm\infty`` 按定义处理。`exit_mi_hist(llr, bits; nbins, clip)` 是 ten Brink（IEEE Trans. Commun. 49(10):1727–1737，2001）的直方图估计，只做两类条件直方图，不需要一致性，但有分箱偏差，两类比特都必须出现。LLR 约定与全包一致：bit0 为正，外信息 = 后验 − 先验（Hagenauer、Offer 与 Papke，IEEE Trans. Inf. Theory 42(2):429–445，1996）。
+- 高斯对称捷径：`exit_j(σ)` 与 `exit_jinv(I)` 是 ten Brink、Speidel 与 Yan（IEEE Trans. Commun. 52(4):670–678，2004，式 (9)–(11)）的多项式近似。这是写明的可选捷径，不是测量，也不是精确积分；文档字符串写清了近似量级。
+- 传递曲线：`exit_demap_transfer(scheme; ia, esn0_db, labels, approx, ...)` 在单位能量 AWGN 上测 `bicm_demap` 的 ``I_E = T(I_A)``，先验是合成的一致高斯 LLR（EXIT 测量的标准假设），``I_A = 1`` 用 `sigma_max` 截成有限。`exit_decoder_transfer(; decoder=:bcjr | :ldpc, ebn0_db, ...)` 测信息比特外信息的传递特性：`:bcjr` 走 `conv_encode` + `bcjr_decode`（返回的已是外信息），`:ldpc` 走 `ldpc_decode_details`（`early_stop=false`，外信息 = 后验 − 先验，先验折进信道 LLR 入口）。SOVA 与 Turbo 不接：公开接口没有编码比特外信息。曲线装在 `EXITCurve(ia, ie)` 里。
+- 随机流：传递曲线用模块内的 xorshift64* + Box–Muller 局部流（与 `test/bicm.jl` 的构造相同），`seed` 固定时跨 Julia 版本可复现，不消耗全局随机数。默认种子 `0x0c0de1162`。
+- 作图：`plot_exit_chart`（`using Plots` 后由 `CommToolkitPlotsExt` 提供）画解调曲线与交换坐标轴的译码曲线；只画测到的曲线，不模拟轨迹。
+- 对照：`test/exit.jl`。BIAWGN 一致 LLR 的互信息对照数值积分（`test/reference.jl` 的 `biawgn_llr_mi`，Simpson，无初等闭式）：``N = 200000`` 时两种估计偏差 ≤ 0.01，``J(2/\sigma)`` 近似偏差 ≤ 0.005。解调锚点：BPSK 与 Gray QPSK 在 ``I_A = 0`` 等于该积分、曲线平坦；6 dB 的 8-PSK 集合分割 ``T(0.98) - T(0) > 0.2``，Gray 接近平坦。译码锚点：10 dB 时 (7, 5) BCJR 的 ``T(0) > 0.99``；0 dB 时 ``T(0.99)`` 明显高于 ``T(0)``；阵列 LDPC 烟测。一致性反面教材固定在种子里：循环图上泛洪 sum-product 在 2.5 dB 的过度自信错误 LLR 使 `:soft` 远低于 `:hist`。打印对照在 `demos/exit_chart.jl`，不加载 Plots。
+- 契约：`docs/src/api.md` 增加 EXIT 一节与 `src/exit.jl` 一行；`test/contract.jl` 的子模块清单加 `:EXIT`，版本钉到 1.1.1。边界、已知限制、验证矩阵、README 与之一致。
+
+## 1.1.0
+
+短 Reed–Solomon。按 `docs/src/api.md` 的承诺只增名字：不改名、不删除，已有函数的位置参数和返回值不变，按 SemVer 记次版本。这是 1.0.0 有意留在外面的那一块；EXIT 图、TR 38.901 的 CDL、路线 C 的多用户 xApp、NR LDPC 仍在范围外。
+
+- 构造：`rs_code(m, k)`。``\mathrm{GF}(2^m)`` 上的窄义本原 RS(``n, k``)，``n = 2^m - 1``，``m \in \{2,3,4\}``，即 ``n \in \{3, 7, 15\}``。生成多项式 ``g(x) = \prod_{j=1}^{n-k} (x + \alpha^j)``，``\alpha = x``，与各域的固定本原多项式一致。``d = n - k + 1``（MDS），``t = \lfloor (n-k)/2 \rfloor``。`rs_shorten(C, s)` 缩短成 ``(n-s, k-s)``：同一生成多项式，``t`` 不变，可复合。
+- 接口：五个新导出 `RSCode`、`rs_code`、`rs_shorten`、`rs_encode`、`rs_decode`。系统编码，码元从高次到低次，与 `bch157_encode` 同序。译码是 Berlekamp–Massey、Chien 搜索和 Forney 公式的硬判决有界距离译码，失败约定与 `bch157_decode` 相同：没有失败标志；定位器次数超 ``t``、根数对不上、根落在被缩短的位置、或纠完伴随式仍非零时，原样返回 ``k`` 个系统符号；超过 ``t`` 可能误纠到接收字 ``t`` 球内的另一码字。不是纠删译码，不是 Guruswami–Sudan 列表译码，不是 Kötter–Vardy 软代数译码，不是 CCSDS 的 (255, 223) 或 (255, 239)，仍没有 ``\mathrm{GF}(2^8)``。
+- 对照：`test/algebraic.jl` 新增四节。生成根逐一核对；RS(15,11) 与 RS(15,9) 生成多项式冻结向量（Lin 与 Costello 第 7 章例，``x^4+\alpha^{13}x^3+\alpha^6x^2+\alpha^3x+\alpha^{10}`` 与 ``x^6+\alpha^{10}x^5+\alpha^{14}x^4+\alpha^4x^3+\alpha^6x^2+\alpha^9x+\alpha^6``）；RS(7,3) 全部 512 条消息往返、最小重量 5 穷举（Singleton 取等）；``t`` 以内按位置和取值穷举（RS(7,3) 全部消息，RS(15,11) 与缩短 RS(10,6) 固定消息集，RS(15,9) 重量 3 按种子 `0x0c0de1162` 抽 20000 条）；``t`` 以外分类为原样返回或 ``t`` 球内误纠；冻结编解码向量。无误码率闭式，不加蒙特卡洛统计判据。
+- 契约：`docs/src/api.md` 增加五个名字，版本 1.1.0。`test/runtests.jl` 与 `test/contract.jl` 的版本号同步。边界、已知限制、验证矩阵与 README 同步。
 
 ## 1.0.0
 
