@@ -4,7 +4,7 @@
 
 从 1.0.0 起，下面「稳定导出」列出的名字是稳定面。`using CommToolkit` 带入的符号与这份清单相同，也与各子模块的 `export` 相同，并都出现在 [API Reference](index.md) 的 `@docs` 块里。删除、改名，或改变位置参数和已有返回值的含义，是破坏性变更，必须升主版本号，并写进 `CHANGELOG`。1.x 可以增加名字；增加本身不升主版本。
 
-这一版不增加算法，也不改已有函数的位置参数和返回值。清单停在 0.9.3 已经导出的名字上：0.9.1 把当时的导出写成契约；0.9.2 增加 `teaching_punctured_mcs_table` 与 `teaching_punctured_amc_thresholds`，把删余码率和 BICM 接进 MCS / Chase；0.9.3 增加 `exponential_correlation`、`kronecker_channel` 与 `apply_kronecker`，即平坦 Kronecker 空间相关。这是契约页，不是教程。
+1.0.0 不增加算法，也不改已有函数的位置参数和返回值：清单停在 0.9.3 已经导出的名字上（0.9.1 把当时的导出写成契约；0.9.2 增加 `teaching_punctured_mcs_table` 与 `teaching_punctured_amc_thresholds`，把删余码率和 BICM 接进 MCS / Chase；0.9.3 增加 `exponential_correlation`、`kronecker_channel` 与 `apply_kronecker`，即平坦 Kronecker 空间相关）。1.1.0 按承诺只增不破：增加 `RSCode`、`rs_code`、`rs_shorten`、`rs_encode`、`rs_decode` 五个名字，即短 Reed–Solomon；已有名字一个不动。这是契约页，不是教程。
 
 未导出的名字不是契约。这包括下划线开头的内部函数，以及子模块里的常数（例如 `Coding.CONV_G1`、`Coding._rsc_encode`）。子模块可以写成 `CommToolkit.Modulation`，但 `using CommToolkit` 不把子模块名字本身带进当前作用域。
 
@@ -107,6 +107,11 @@
 - `hamming74_decode`
 - `bch157_encode`
 - `bch157_decode`
+- `RSCode`
+- `rs_code`
+- `rs_shorten`
+- `rs_encode`
+- `rs_decode`
 - `LDPCCode`
 - `LDPCResult`
 - `gallager_ldpc`

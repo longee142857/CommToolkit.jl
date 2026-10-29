@@ -1,5 +1,14 @@
 # 变更记录
 
+## 1.1.0
+
+短 Reed–Solomon。按 `docs/src/api.md` 的承诺只增名字：不改名、不删除，已有函数的位置参数和返回值不变，按 SemVer 记次版本。这是 1.0.0 有意留在外面的那一块；EXIT 图、TR 38.901 的 CDL、路线 C 的多用户 xApp、NR LDPC 仍在范围外。
+
+- 构造：`rs_code(m, k)`。``\mathrm{GF}(2^m)`` 上的窄义本原 RS(``n, k``)，``n = 2^m - 1``，``m \in \{2,3,4\}``，即 ``n \in \{3, 7, 15\}``。生成多项式 ``g(x) = \prod_{j=1}^{n-k} (x + \alpha^j)``，``\alpha = x``，与各域的固定本原多项式一致。``d = n - k + 1``（MDS），``t = \lfloor (n-k)/2 \rfloor``。`rs_shorten(C, s)` 缩短成 ``(n-s, k-s)``：同一生成多项式，``t`` 不变，可复合。
+- 接口：五个新导出 `RSCode`、`rs_code`、`rs_shorten`、`rs_encode`、`rs_decode`。系统编码，码元从高次到低次，与 `bch157_encode` 同序。译码是 Berlekamp–Massey、Chien 搜索和 Forney 公式的硬判决有界距离译码，失败约定与 `bch157_decode` 相同：没有失败标志；定位器次数超 ``t``、根数对不上、根落在被缩短的位置、或纠完伴随式仍非零时，原样返回 ``k`` 个系统符号；超过 ``t`` 可能误纠到接收字 ``t`` 球内的另一码字。不是纠删译码，不是 Guruswami–Sudan 列表译码，不是 Kötter–Vardy 软代数译码，不是 CCSDS 的 (255, 223) 或 (255, 239)，仍没有 ``\mathrm{GF}(2^8)``。
+- 对照：`test/algebraic.jl` 新增四节。生成根逐一核对；RS(15,11) 与 RS(15,9) 生成多项式冻结向量（Lin 与 Costello 第 7 章例，``x^4+\alpha^{13}x^3+\alpha^6x^2+\alpha^3x+\alpha^{10}`` 与 ``x^6+\alpha^{10}x^5+\alpha^{14}x^4+\alpha^4x^3+\alpha^6x^2+\alpha^9x+\alpha^6``）；RS(7,3) 全部 512 条消息往返、最小重量 5 穷举（Singleton 取等）；``t`` 以内按位置和取值穷举（RS(7,3) 全部消息，RS(15,11) 与缩短 RS(10,6) 固定消息集，RS(15,9) 重量 3 按种子 `0x0c0de1162` 抽 20000 条）；``t`` 以外分类为原样返回或 ``t`` 球内误纠；冻结编解码向量。无误码率闭式，不加蒙特卡洛统计判据。
+- 契约：`docs/src/api.md` 增加五个名字，版本 1.1.0。`test/runtests.jl` 与 `test/contract.jl` 的版本号同步。边界、已知限制、验证矩阵与 README 同步。
+
 ## 1.0.0
 
 公开接口按 SemVer 冻成 1.0。这一版不增加算法，不改已有函数的位置参数和返回值，也不改 `docs/src/api.md` 里已经列出的名字。`using CommToolkit` 带入的名字就是稳定面。删除、改名，或改变位置参数和已有返回值的含义，必须升主版本号，并写进本文件。1.x 可以增加名字；增加本身不升主版本。

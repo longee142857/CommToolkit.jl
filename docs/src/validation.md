@@ -31,6 +31,7 @@
 | Channel | 块恒定瑞利 | 一块内一个 ``h \sim \mathcal{CN}(0,1)``，块之间独立。没有单独的闭式误码率测试 | `test/interleave.jl` | `demos/ber_block_interleave.jl` |
 | Coding | 短帧 Turbo | 无闭式误码。手算码字、终止回到状态 0、短块上 log-BCJR 与穷举后验对照。不是 3GPP BLER 表。外信息分解见 Hagenauer、Offer 与 Papke，IEEE Trans. Inf. Theory 42(2):429–445，1996（`turbo_decode` 的文档字符串） | `test/turbo.jl` | 无 |
 | Coding | ``\mathrm{GF}(2^m)``、Hamming(7,4)、BCH(15,7) | 域运算对照固定本原多项式。Hamming 伴随式用 Lin 与 Costello §3.2 的列顺序。BCH 设计距离 5，纠正 2 个错误。没有误码率曲线 | `test/algebraic.jl` | 无 |
+| Coding | 短 Reed–Solomon | 生成根 ``\alpha^1, \ldots, \alpha^{n-k}`` 逐一核对；Singleton 界取等 ``d = n - k + 1``，RS(7,3) 穷举全部 512 个码字验证最小重量 5。``t`` 以内按位置和取值穷举：RS(7,3) 全部消息、RS(15,11) 与缩短 RS(10,6) 的固定消息集；RS(15,9) 的重量 3 用种子 `0x0c0de1162` 抽 20000 条。``t`` 以外只分两类：原样返回（错误全落在校验位时恰好就是发送消息），或误纠到接收字 ``t`` 球内的另一码字。缩短码里落在被缩短位置的错误定位根按失败处理。冻结的生成多项式与编解码向量。没有误码率曲线，不做蒙特卡洛统计判据。Reed 与 Solomon，J. SIAM 8(2):300–304，1960；Massey，IEEE Trans. Inf. Theory 15(1):122–127，1969；Chien，IEEE Trans. Inf. Theory 10(4):357–363，1964；Forney，IEEE Trans. Inf. Theory 11(4):549–557，1965；Lin 与 Costello 第 7 章 | `test/algebraic.jl` | `demos/rs_short.jl` |
 | Coding | 短 LDPC | 树上的 sum-product 与逐比特 MAP 一致。`array_ldpc(3, 6, 11)`（``n = 66``，``k = 35``）在 2.5 dB 与 3.5 dB、各 1000 帧、种子 `0x0c0de1162`，归一化 min-sum 与 sum-product 的信息比特 BER 和 BLER 上界低于未编码 BPSK。构造与译码的文献在 `test/ldpc.jl` 文件头：Gallager 1962，Fan 2000，Lin 与 Costello §3.2，Kschischang、Frey 与 Loeliger 2001，Fossorier、Mihaljević 与 Imai 1999，Chen 与 Fossorier 2002。不是密度进化阈值。Hamming 校验图含 4 环，不是最大似然 | `test/ldpc.jl` | 无 |
 | BICM | 8-PSK 集合分割上的迭代增益 | 无容量闭式。终止 (7, 5)，``E_s = 1``，``R = 400/804``，``E_b = 1/(3R) = 0.67``，max-log。AWGN、``E_b/N_0 = 6\,\mathrm{dB}``、80 帧：4 次迭代相对 1 次，信息比特 BER 和 BLER 的区间互不重叠。理想 CSI 逐符号瑞利在 8 dB、40 帧同样分开。标签是 Ungerboeck，IEEE Trans. Inf. Theory 28(1):55–67，1982，不是 Gray | `test/bicm.jl` | `demos/ber_bicm_id.jl` |
 | Link | CRC-16 | CRC-16/XMODEM：ASCII `"123456789"` 的余数是 `0x31C3`。``g(x)`` 的倍式漏检。单比特翻转被检出 | `test/link.jl` | 无 |
@@ -54,7 +55,7 @@
 
 ## 闭式摘录
 
-下列句子里，Kronecker 那一条是 0.9.3 加上的，定义在 `kronecker_channel` 的文档字符串，不在 `test/reference.jl`。1.0.0 不新增闭式，也不改这张表。其余与 v0.9.0 的 README 验证段相同，公式仍以 `test/reference.jl` 为准。
+下列句子里，Kronecker 那一条是 0.9.3 加上的，定义在 `kronecker_channel` 的文档字符串，不在 `test/reference.jl`。1.0.0 不新增闭式，也不改这张表。1.1.0 只在矩阵里增加短 Reed–Solomon 一行，它没有误码闭式，本节的公式清单不变。其余与 v0.9.0 的 README 验证段相同，公式仍以 `test/reference.jl` 为准。
 
 - AWGN 下 BPSK 与 Gray QPSK：``Q(\sqrt{2 E_b/N_0})``。Proakis 与 Salehi，第 5 版，§5.2。
 - 方形 Gray M-QAM 的精确平均误比特率：Cho 与 Yoon，2002，式 (16)。图中 16-QAM 用的是这个精确式，不是高信噪比近似。

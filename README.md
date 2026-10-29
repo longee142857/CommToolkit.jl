@@ -1,6 +1,6 @@
 # CommToolkit.jl
 
-> **v1.0.0**。公开接口按 SemVer 冻结。稳定面是 [公开接口](docs/src/api.md) 里 `using CommToolkit` 带入的名字；删除、改名或改变位置参数和已有返回值的含义，升主版本。
+> **v1.1.0**。公开接口按 SemVer 冻结。稳定面是 [公开接口](docs/src/api.md) 里 `using CommToolkit` 带入的名字；删除、改名或改变位置参数和已有返回值的含义，升主版本。1.1.0 在 1.0.0 的稳定面上只增不破：新导出短 Reed–Solomon（`RSCode`、`rs_code`、`rs_shorten`、`rs_encode`、`rs_decode`）。
 
 基带通信链路仿真库，用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
 
@@ -8,7 +8,7 @@
 
 1.0.0 收的是已经落地的三块，不新加算法：0.9.1 的工程契约，0.9.2 的删余码率与 BICM 接入 MCS / Chase，0.9.3 的平坦 Kronecker。已有函数的位置参数和返回值不变。原来的五档表、默认 `receiver=:viterbi`，以及 0.9.2 的删余表都不变。
 
-教学范围内的是带删余和 BICM 路径的 MCS / HARQ，以及平坦 Kronecker MIMO。有意留在 1.0 之外的是短 Reed–Solomon（代数码只有 BCH(15,7)）、EXIT 图、TR 38.901 的 CDL、路线 C 的多用户 xApp、NR LDPC。不是 NR，不是 O-RAN，不是几何 CDL，也不是生产协议栈。
+教学范围内的是带删余和 BICM 路径的 MCS / HARQ、平坦 Kronecker MIMO，以及 1.1.0 收进来的短 Reed–Solomon（``\mathrm{GF}(2^m)``、``m \le 4`` 的窄义本原码，长度 3、7、15 及其缩短，Berlekamp–Massey 硬判决）。有意留在外面的是 EXIT 图、TR 38.901 的 CDL、路线 C 的多用户 xApp、NR LDPC。不是 NR，不是 O-RAN，不是几何 CDL，也不是生产协议栈。
 
 ## 功能
 
@@ -16,7 +16,7 @@
 
 - **调制**（`Modulation`）：BPSK、Gray QPSK、Gray M-PSK、方形 Gray M-QAM，单位符号能量。硬判决，以及相干 AWGN 下的逐比特 LLR。DBPSK / DQPSK 在块首放参考符号，不是 ``\pi/4``-DQPSK。
 - **信道**（`Channel`）：AWGN 的 `snr_db` 是 ``E_b/N_0``。平坦瑞利、块衰落、平坦 Rice（`K` 为线性比）、Clarke/Jakes 时间相关、Nakagami-m、理想 CSI 的 MRC，以及调用者给定抽头的单载波 FIR。
-- **编码**（`Coding`）：终止的 (7, 5) 卷积码，硬 / 软 Viterbi、log-BCJR、SOVA，以及到 2/3、3/4 的周期删余。短帧 Turbo（记忆 2 的 RSC）。``\mathrm{GF}(2^m)``（``m = 2,3,4``）、Hamming(7,4)、二进制 BCH(15,7)。短 LDPC：Gallager、Fan 阵列码、系统编码、泛洪 sum-product 与 min-sum。
+- **编码**（`Coding`）：终止的 (7, 5) 卷积码，硬 / 软 Viterbi、log-BCJR、SOVA，以及到 2/3、3/4 的周期删余。短帧 Turbo（记忆 2 的 RSC）。``\mathrm{GF}(2^m)``（``m = 2,3,4``）、Hamming(7,4)、二进制 BCH(15,7)。短 Reed–Solomon：``n \in \{3,7,15\}`` 的窄义本原码与缩短码，Berlekamp–Massey + Chien + Forney 硬判决。短 LDPC：Gallager、Fan 阵列码、系统编码、泛洪 sum-product 与 min-sum。
 - **交织**（`Interleaving`）：矩形块交织，按行写入、按列读出。
 - **BICM**（`BICM`）：比特交织编码调制的教学接收机。默认 Gray。`bicm_psk8_id_labels` 是 8-PSK 集合分割。卷积块可用 `rate = 2//3` 或 `3//4`，删余在交织之前。`simulate_link(...; receiver=:bicm)` 只调用卷积行。不是 NR BICM，没有 EXIT 图。
 - **链路**（`Link`）：CRC-16、原来的五档教学 MCS，以及另一张净荷 54 比特的删余卷积表。默认接收机是软输入 Viterbi。`receiver=:bicm` 在卷积行上改用 BICM。重传重复同一删余字，不是增量冗余。``E_s = 1``，``\sigma^2 = N_0/2``。
@@ -72,7 +72,7 @@ src/channel.jl        Channel（含 Rice、Clarke/Jakes、Nakagami-m、理想 CS
 src/pulse.jl          Pulse：匹配滤波与按 sps 抽样
 src/coding.jl         Coding（包含 ldpc.jl、turbo.jl、algebraic.jl；卷积与 SOVA 在本文件）
 src/turbo.jl          短帧 Turbo：记忆 2 RSC、块/步长交织、log-BCJR 迭代
-src/algebraic.jl      GF(2^m)、Hamming(7,4) 伴随式硬判决、BCH(15,7)
+src/algebraic.jl      GF(2^m)、Hamming(7,4) 伴随式硬判决、BCH(15,7)、短 Reed–Solomon
 src/interleaving.jl   Interleaving：矩形块交织
 src/bicm.jl           BICM：比特交织编码调制、卷积删余与迭代解调
 src/ldpc.jl           短 LDPC：Gallager、阵列码、系统编码、泛洪译码
@@ -99,10 +99,10 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 
 ## 已知限制
 
-完整条目在 [docs/src/limitations.md](docs/src/limitations.md)。1.0.0 不放宽这些限制。0.9.2 改的是删余 MCS、卷积 BICM 接收机和同一删余字的 Chase。0.9.3 增加平坦 Kronecker。这里只留检索用的几条：
+完整条目在 [docs/src/limitations.md](docs/src/limitations.md)。0.9.2 改的是删余 MCS、卷积 BICM 接收机和同一删余字的 Chase。0.9.3 增加平坦 Kronecker。1.0.0 不放宽这些限制；1.1.0 只增加短 Reed–Solomon，不改已有条目。这里只留检索用的几条：
 
 - 卷积母码仍是 (7, 5)。删余只有 2/3 和 3/4 两张图案。教学 MCS 可以用这三档名义码率，母码长度必须是图案周期的整数倍。联合界不覆盖删余码。不是 NR 速率匹配。
-- Turbo 是记忆 2 的短帧，不是 3GPP。BCH 只有 (15, 7)，不是 Reed–Solomon。
+- Turbo 是记忆 2 的短帧，不是 3GPP。BCH 只有 (15, 7)。Reed–Solomon 是 ``m \le 4`` 的短窄义本原码及其缩短，不是 CCSDS 长码，也不是软代数译码。
 - LDPC 是短教学码，不是 NR 基图。BICM 没有 EXIT 图。`receiver=:bicm` 只接卷积行，不是 NR BICM。
 - Jakes 是平坦 Clarke 谱的 DFT 实现，不是正弦和，也不是抽头延迟线。`TDLChannel` 不是 TR 38.901 的 CDL。
 - Kronecker 是一次平坦矩阵 ``R_r^{1/2} H_w R_t^{1/2}``。`mimo_channel` 仍是 i.i.d.。指数相关是 Loyka 的 Toeplitz 矩阵，不是 ``J_0``。检测器不按 ``R_t``、``R_r`` 做预白化。不是 Weichselberger，也不是 UMi。
