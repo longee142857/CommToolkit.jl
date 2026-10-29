@@ -56,4 +56,28 @@ function plot_pulse_response(taps::AbstractVector{<:Real}; title::String="Pulse 
     return plot(p1, p2; layout=(1, 2), size=(800, 350))
 end
 
+function plot_exit_chart(curve::EXITCurve; title::String="EXIT chart")
+    plt = plot(curve.ia, curve.ie;
+        lw=2, color=:blue, marker=:circle, markersize=4,
+        label="measured T(I_A)", legend=:bottomright)
+    plot!(plt; xlabel="I_A", ylabel="I_E",
+        xlims=(0, 1), ylims=(0, 1), aspect_ratio=:equal,
+        title=title, grid=true, framestyle=:box)
+    return plt
+end
+
+function plot_exit_chart(demapper::EXITCurve, decoder::EXITCurve;
+                         title::String="EXIT chart")
+    plt = plot(demapper.ia, demapper.ie;
+        lw=2, color=:blue, marker=:circle, markersize=4,
+        label="demapper I_E = T(I_A)", legend=:bottomright)
+    plot!(plt, decoder.ie, decoder.ia;
+        lw=2, color=:red, marker=:square, markersize=4,
+        label="decoder I_A = T(I_E), swapped axes")
+    plot!(plt; xlabel="I_A demapper / I_E decoder", ylabel="I_E demapper / I_A decoder",
+        xlims=(0, 1), ylims=(0, 1), aspect_ratio=:equal,
+        title=title, grid=true, framestyle=:box)
+    return plt
+end
+
 end # module CommToolkitPlotsExt

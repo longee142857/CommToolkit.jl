@@ -1,12 +1,12 @@
 # CommToolkit.jl API
 
-API reference for the exported interface of version 1.1.0. This page is not a tutorial. Those exported names are the stable surface; breaking changes require a major version bump.
+API reference for the exported interface of version 1.1.1. This page is not a tutorial. Those exported names are the stable surface; breaking changes require a major version bump. Versions 1.1.x are additive over 1.0.0: 1.1.0 adds short Reed–Solomon and 1.1.1 adds the `EXIT` submodule; neither changes an existing signature.
 
 The stability surface, the validation matrix, and the scope page are written in Chinese, matching the README: [边界](boundaries.md), [公开接口](api.md), [验证矩阵](validation.md), [已知限制](limitations.md).
 
 The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE PHY, it does not implement an O-RAN fronthaul, it does not implement a geometric 3GPP TR 38.901 clustered delay line, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The turbo code is a short memory-2 teaching construction, not a 3GPP turbo code. `bch157_encode` is the binary BCH code of length 15 and dimension 7, not a general BCH constructor. `rs_code` adds short narrow-sense primitive Reed–Solomon codes over the same small fields (lengths 3, 7, 15, and shortened forms) with a hard-decision Berlekamp–Massey decoder; they are not the CCSDS long codes and not a soft algebraic decoder. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity. Convolutional MCS rows may use the periodic puncture masks; retransmissions still repeat one word. `receiver=:bicm` is a teaching BICM path on those convolutional rows, not NR BICM. `PSK` is coherent Gray ``M``-PSK. `DBPSK` and `DQPSK` are two-symbol differential detectors, not ``\pi/4``-DQPSK. `rice_channel` takes a linear Rice factor. `jakes_fading` is a flat Clarke spectrum on a DFT grid, not a classical Jakes sum of sinusoids. `nakagami_channel` takes the Nakagami parameter `m`. `mrc` is ideal-CSI receive combining, not a MIMO detector. `kronecker_channel` is one flat Kronecker matrix, not a Weichselberger model and not a TR 38.901 CDL or UMi.
 
-Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `BICM`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, `Scrambling`, `Sync`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it. Gardner, Costas, and Schmidl–Cox in `Sync` are teaching loops with a stated capture range. They do not replace `ofdm_sync`.
+Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `BICM`, `EXIT`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, `Scrambling`, `Sync`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it. Gardner, Costas, and Schmidl–Cox in `Sync` are teaching loops with a stated capture range. They do not replace `ofdm_sync`.
 
 ```@docs
 CommToolkit
@@ -102,7 +102,7 @@ ldpc_row_degrees
 
 ## BICM
 
-Teaching bit-interleaved coded modulation. Not 5G NR BICM and not an EXIT chart. With Gray labels and no bit prior, `bicm_demap` is `demodulate_soft`. `bicm_psk8_id_labels` is Ungerboeck set partitioning on 8-PSK; that is the map used when an iterative gain has to be visible. `:sova` and `:turbo` are one demapper pass plus the existing information-bit decoder. Convolutional `rate` of `2//3` or `3//4` punctures the mother code before the interleaver. The MCS loop calls this receiver through `simulate_link(...; receiver=:bicm)`; this module does not own the MCS table.
+Teaching bit-interleaved coded modulation. Not 5G NR BICM. The receiver loop itself draws no EXIT chart; soft-information mutual information and transfer characteristics are measured by the `EXIT` submodule below. With Gray labels and no bit prior, `bicm_demap` is `demodulate_soft`. `bicm_psk8_id_labels` is Ungerboeck set partitioning on 8-PSK; that is the map used when an iterative gain has to be visible. `:sova` and `:turbo` are one demapper pass plus the existing information-bit decoder. Convolutional `rate` of `2//3` or `3//4` punctures the mother code before the interleaver. The MCS loop calls this receiver through `simulate_link(...; receiver=:bicm)`; this module does not own the MCS table.
 
 ```@docs
 CommToolkit.BICM
@@ -112,6 +112,22 @@ bicm_psk8_id_labels
 bicm_map
 bicm_demap
 bicm_decode
+```
+
+## EXIT charts
+
+Teaching EXIT measurement, added in 1.1.1: mutual information of soft bit values from histograms (ten Brink 2001) or the histogram-free soft estimator (Hagenauer, EUSIPCO 2004), the Gaussian-symmetric `J(σ)` approximation and its inverse (ten Brink, Speidel, and Yan 2004) as a documented option, and transfer characteristics measured on the existing demapper and decoders without rewriting them. Not NR LDPC EXIT production tooling: no density evolution, no degree optimisation, no 3GPP codes, and no trajectory tracking. The chart figure needs Plots.jl.
+
+```@docs
+CommToolkit.EXIT
+EXITCurve
+exit_mi_soft
+exit_mi_hist
+exit_j
+exit_jinv
+exit_demap_transfer
+exit_decoder_transfer
+plot_exit_chart
 ```
 
 ## Scrambling

@@ -10,6 +10,7 @@ makedocs(;
         CommToolkit.Coding,
         CommToolkit.Interleaving,
         CommToolkit.BICM,
+        CommToolkit.EXIT,
         CommToolkit.Link,
         CommToolkit.Equalization,
         CommToolkit.OFDM,

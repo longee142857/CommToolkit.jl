@@ -2,7 +2,7 @@
 
 本包把教材基带算法和闭式或参考实现对上。下面是类别上的边界。参数级的限制在 [已知限制](limitations.md)。验证到哪一步在 [验证矩阵](validation.md)。
 
-1.0.0 不扩大这些类别。1.1.0 收进了短 Reed–Solomon：`rs_code` 的窄义本原码，``\mathrm{GF}(2^m)``、``m \le 4``，长度 3、7、15 及其缩短，硬判决有界距离译码，不是 CCSDS 长码，也不是软代数译码。有意留在外面的仍是 EXIT 图、TR 38.901 的 CDL、路线 C 的多用户 xApp，以及 NR LDPC。教学 MCS / HARQ 上的删余和 BICM 路径，以及平坦 Kronecker MIMO，留在范围内。
+1.0.0 不扩大这些类别。1.1.0 收进了短 Reed–Solomon：`rs_code` 的窄义本原码，``\mathrm{GF}(2^m)``、``m \le 4``，长度 3、7、15 及其缩短，硬判决有界距离译码，不是 CCSDS 长码，也不是软代数译码。1.1.1 把 EXIT 图收进范围：直方图与蒙特卡洛软信息互信息测量、写明的 ``J(\sigma)`` 高斯对称近似，以及在现有解映射器和译码器上测的传递曲线。这是教学 EXIT，不是 NR LDPC 的 EXIT 生产工具，也没有密度进化。有意留在范围之外的仍是 TR 38.901 的 CDL、路线 C 的多用户 xApp，以及 NR LDPC。教学 MCS / HARQ 上的删余和 BICM 路径，以及平坦 Kronecker MIMO，留在范围内。
 
 ## 不是 3GPP NR / LTE 物理层
 
@@ -10,7 +10,7 @@ OFDM 是教科书循环前缀模型。没有资源栅格，没有 DMRS 或 PTRS�
 
 LDPC 是短的 Gallager 正则构造和 Fan 阵列码，不是 NR BG1/BG2。Turbo 是记忆 2 的递归系统卷积 (1, 5/7)，信息长度不超过 1024，不是 3GPP 的 (13, 15) 或 (15, 13)，也不是 LTE 的记忆 4 分量码。卷积删余是 ``K = 3`` 母码上的两张周期图案，不是 NR 速率匹配。BCH 只有二进制 (15, 7)。Reed–Solomon 只有 `rs_code` 的短码：``\mathrm{GF}(2^m)``、``m \le 4``，长度 3、7、15 及其缩短，Berlekamp–Massey 硬判决。不是 CCSDS 的 (255, 223) 或 (255, 239)，不是软代数译码，也不是 NR 信道码。
 
-BICM 用现有星座和现有译码器做教学迭代。没有 NR 速率匹配、层映射、扰码或 NR LDPC 基图，也没有 EXIT 图。`simulate_link(...; receiver=:bicm)` 可以在卷积 MCS 行上调用它。LDPC 和 Turbo 的 BICM 不进 MCS 表。
+BICM 用现有星座和现有译码器做教学迭代。没有 NR 速率匹配、层映射、扰码或 NR LDPC 基图；EXIT 图不在迭代环内，是 `EXIT` 模块在环外的互信息测量。`simulate_link(...; receiver=:bicm)` 可以在卷积 MCS 行上调用它。LDPC 和 Turbo 的 BICM 不进 MCS 表。
 
 扰码是加性 LFSR，不是 NR 扰码。CRC 是 CRC-16/XMODEM 那条多项式，不是 NR 的 CRC24。
 
