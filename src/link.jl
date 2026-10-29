@@ -3,7 +3,7 @@
 
 Link-level teaching loop: CRC-16, a small discrete MCS table, Chase combining, and threshold or outer-loop MCS selection on AWGN.
 
-Convolutional rows may use the mother rate 1/2 or the periodic punctured rates 2/3 and 3/4. A second receiver repeats the same symbols and decodes them with bit-interleaved coded modulation. Retransmissions are still Chase combining of one punctured word, not incremental redundancy.
+Convolutional rows may use the mother rate 1/2 or the periodic punctured rates 2/3 and 3/4. A second receiver repeats the same symbols and decodes them with bit-interleaved coded modulation. Retransmissions are Chase combining of one punctured word by default. `simulate_link(...; harq=:ir)` is an opt-in teaching incremental redundancy: the retransmission sends the mother bits the puncture mask deleted, and the receiver soft-combines per mother position. It is not NR rate matching and not redundancy versions RV0–RV3.
 
 This is not a 3GPP NR/LTE stack. There is no CQI table, NR rate matching, HARQ process number, timeline, scheduler, power control, or multi-user model.
 """
@@ -228,7 +228,7 @@ Terminated ``K = 3`` convolutional MCS. The encoder input is `payload_bits` plus
 
 `rate` is `1//2` (default, nothing deleted), `2//3`, or `3//4`. The mask is [`puncture_mask`](@ref), applied to the mother stream with the tail included. The mother length must be a multiple of the mask period, so an MCS row has no partial period. The transmitted length must be divisible by the number of bits per symbol. A floating-point rate is rejected.
 
-The spectral efficiency is payload bits per transmitted symbol. It is lower than `rate` times the bits per symbol, because the CRC and the tail are not payload. This is not an NR MCS index and not incremental redundancy.
+The spectral efficiency is payload bits per transmitted symbol. It is lower than `rate` times the bits per symbol, because the CRC and the tail are not payload. This is not an NR MCS index. Chase or incremental-redundancy retransmission behaviour lives in [`simulate_link`](@ref), not in the row.
 """
 function mcs_convolutional(name::AbstractString, scheme::ModulationScheme, payload_bits::Integer;
                            rate::Real=1//2)
@@ -545,7 +545,7 @@ Counts and rates from one [`simulate_link`](@ref) call.
 - `n_undetected`: `n_ack - n_delivered`.
 - `n_success_bits`: payload bits in delivered blocks. CRC bits are not included. A CRC failure discards the block even if the payload happened to be correct.
 - `n_bit_errors`, `n_payload_bits`: genie payload mismatches of the **last** decode of each block, and the number of payload bits compared. `ber = n_bit_errors / n_payload_bits`. CRC bits are not in this rate.
-- `n_channel_uses`: modulated symbols actually sent, including Chase retransmissions.
+- `n_channel_uses`: modulated symbols actually sent, including HARQ retransmissions. With `harq = :ir` a complementary retransmission is shorter than the first transmission, so this is not `n_transmissions` times one row's symbol count.
 - `n_transmissions`: same sum, counted in transport-block transmissions. `mean_transmissions = n_transmissions / n_blocks`.
 - `bler`: `(n_blocks - n_ack) / n_blocks`. Residual CRC failure rate after HARQ.
 - `throughput`: `n_success_bits / n_channel_uses`. Delivered information bits per channel use. One channel use is one complex baseband symbol (real BPSK is one symbol as well).
@@ -660,9 +660,9 @@ end
 One AWGN transport-block loop.
 
 # Chain
-Payload bits, CRC-16, encode, optional convolutional puncturing, modulate, AWGN, demodulate, decode, CRC. A CRC failure at `max_tx = 1` drops the block. With `max_tx > 1` the same coded symbols are sent again. The first CRC success stops the repeats. A block that still fails is discarded: its payload does not count as delivered.
+Payload bits, CRC-16, encode, optional convolutional puncturing, modulate, AWGN, demodulate, decode, CRC. A CRC failure at `max_tx = 1` drops the block. With `max_tx > 1` the default `harq = :chase` sends the same coded symbols again; `harq = :ir` sends a complementary puncture word instead (see the `harq` keyword). The first CRC success stops the repeats. A block that still fails is discarded: its payload does not count as delivered.
 
-`receiver = :viterbi` (default) soft-demodulates with [`demodulate_soft`](@ref), sums those bit LLRs, writes LLR 0 on punctured mother bits, and runs soft-input Viterbi. LDPC rows use [`ldpc_decode`](@ref) and are not punctured.
+`receiver = :viterbi` (default) soft-demodulates with [`demodulate_soft`](@ref), sums those bit LLRs, writes LLR 0 on punctured mother bits, and runs soft-input Viterbi. With `harq = :ir` the sums live on mother positions instead; see Combining. LDPC rows use [`ldpc_decode`](@ref) and are not punctured.
 
 `receiver = :bicm` maps with [`bicm_map`](@ref) and decodes with [`bicm_decode`](@ref) (`decoder = :bcjr`). Order is encode, puncture, block-interleave, modulate. The same symbols are repeated. Observations are averaged and the noise variance passed to the demapper is divided by the number of transmissions so far, which is maximum-likelihood combining of identical AWGN symbols. Deleted mother bits are LLR 0 inside the log-MAP decoder. This receiver accepts only convolutional rows. It is not incremental redundancy: a retransmission does not send the bits the puncture mask removed.
 
@@ -680,7 +680,8 @@ Payload bits, CRC-16, encode, optional convolutional puncturing, modulate, AWGN,
 - `table`: MCS list, default [`teaching_mcs_table`](@ref).
 - `mcs`: 1-based row to force. `nothing` (default) lets `policy` choose.
 - `policy`: [`ThresholdAMC`](@ref) or [`OuterLoopAMC`](@ref). The default is `ThresholdAMC(teaching_amc_thresholds())`, which must match `table`. Ignored when `mcs` is set, and then an outer-loop offset is left unchanged.
-- `max_tx`: transmissions of one block, including the first. `1` disables HARQ. The only HARQ mode is Chase combining of the same transmitted word. Puncturing changes that word's length; it does not produce a new redundancy version on the retransmission.
+- `max_tx`: transmissions of one block, including the first. `1` disables HARQ. `harq` selects what a retransmission carries.
+- `harq`: `:chase` (default) or `:ir`. `:chase` is the v1.0 behaviour: a retransmission repeats the same transmitted word, and the receiver sums bit LLRs (`:viterbi`) or averages symbols (`:bicm`). `:ir` is a teaching incremental redundancy on punctured convolutional rows with the `:viterbi` receiver. Transmission 1 sends the [`puncture_mask`](@ref) word (pattern A). Transmission 2 sends the mother bits that pattern A deleted (the complementary mask B). Longer cycles alternate A, B, A, B. Bit LLRs are summed per mother position, so after an even transmission the decoder has seen every mother bit once, and the effective code rate has stepped down from the punctured rate toward the mother rate ``1/2``. Requirements, checked before any block is simulated: `receiver = :viterbi`; every selectable row must be convolutional (an LDPC row raises `ArgumentError`); the complement length `n_mother - n_coded` of a punctured row must be divisible by the bits per symbol. A rate ``1/2`` row deletes nothing, so its `:ir` retransmissions repeat the whole word and coincide with `:chase`. `max_tx = 1` sends only pattern A, identical to `:chase`. This is the complementary-pattern teaching scheme, not NR rate matching and not redundancy versions RV0–RV3.
 - `approx`: `:exact` (default) or `:maxlog`, forwarded to [`demodulate_soft`](@ref) or to [`bicm_decode`](@ref). On BPSK and Gray QPSK the two agree when the demapper prior is zero.
 - `ldpc_max_iter`, `ldpc_algorithm`: forwarded to [`ldpc_decode`](@ref). Ignored by the BICM receiver, which uses log-MAP on the convolutional trellis.
 - `receiver`: `:viterbi` (default) or `:bicm`. See the chain above. `:bicm` on an LDPC row raises `ArgumentError`. If `mcs` is set, only that row is checked; otherwise every row of `table` is checked, because the policy may select any of them.
@@ -696,7 +697,7 @@ The BICM keywords must stay at their defaults when `receiver` is `:viterbi`. ``E
 Transmit energy stays ``E_s = 1``. A power-control loop would scale the symbols before `awgn`; this teaching link does not.
 
 # Combining
-`receiver = :viterbi`: attempt ``t`` observes the same transmitted bits in independent noise. Bit LLRs of those bits are summed,
+`receiver = :viterbi`, `harq = :chase`: attempt ``t`` observes the same transmitted bits in independent noise. Bit LLRs of those bits are summed,
 
 ```math
 L_j^{(r)} = \sum_{t=1}^{r} L_j\!\left(y_j^{(t)}\right).
@@ -704,17 +705,25 @@ L_j^{(r)} = \sum_{t=1}^{r} L_j\!\left(y_j^{(t)}\right).
 
 Punctured mother positions stay at LLR 0; they are not observations. For a true AWGN bit LLR the sum is maximum-likelihood code combining of identical packets (Chase, IEEE Trans. Commun., 33(5):385–393, 1985). BPSK and Gray QPSK LLRs are linear in the observation, so the sum matches symbol-level MRC. Square-QAM LLRs are not linear; the sum is the bit-metric Chase receiver, not joint ML over the repeated constellation.
 
-`receiver = :bicm`: the same symbols are averaged,
+`receiver = :bicm` (`harq = :chase`, the only mode this receiver accepts): the same symbols are averaged,
 
 ```math
 \bar{y}_j^{(r)} = \frac{1}{r}\sum_{t=1}^{r} y_j^{(t)},
 \qquad \sigma^2 \leftarrow \sigma^2 / r,
 ```
 
-and [`bicm_decode`](@ref) is run on ``\bar{y}^{(r)}``. For identical symbols in AWGN this average is a sufficient statistic. It is not bit-metric Chase, and it is not incremental redundancy.
+and [`bicm_decode`](@ref) is run on ``\bar{y}^{(r)}``. For identical symbols in AWGN this average is a sufficient statistic. It is not bit-metric Chase, and with `harq = :chase` it is not incremental redundancy.
+
+`harq = :ir` (`:viterbi` receiver, punctured convolutional rows): transmission ``t`` keeps the mother positions of mask A (odd ``t``) or of the complementary mask B (even ``t``), and the receiver sums each observation into its mother position,
+
+```math
+L_j^{(r)} = \sum_{t \le r,\ t\ \text{sends}\ j} L_j\!\left(y_j^{(t)}\right).
+```
+
+Positions not sent by any transmission so far stay at LLR 0, the same erasure [`depuncture`](@ref) writes. After transmission 2 every mother bit has exactly one observation, so the decoder faces the terminated rate-``1/2`` mother code; transmission 3 adds a second observation to the A positions, and so on. This is code combining of rate-compatible puncture words (Hagenauer, IEEE Trans. Commun., 36(4):389–400, 1988), restricted to the two masks the package owns. The B word is shorter than the A word, so an `:ir` retransmission spends fewer channel uses than a `:chase` repeat; `n_channel_uses` counts what was actually sent. On this ``K = 3`` mother on static AWGN, `:ir` at `max_tx = 2` has a **higher** CRC failure rate than `:chase` — the Chase repeat doubles the energy of the punctured word, which beats one observation of every mother bit — while at `max_tx = 3` the two failure rates match within the Clopper–Pearson interval and `:ir` still spends fewer channel uses. That is the textbook trade-off for a small code on a static channel. It is not a claim about fading channels, where the diversity between retransmissions is what pays, and it is not an NR redundancy-version sequence.
 
 # References
-CRC: ITU-T V.41 polynomial, systematic register as in [`crc16_ccitt`](@ref). Convolutional code and Viterbi: Proakis and Salehi, 5th ed., §8.2. Puncture masks: Yasuda, Kashiki, and Hirata, IEEE Trans. Commun., 32(3):315–319, 1984. BICM-ID: Li, Chindapol, and Ritcey, IEEE Trans. Commun., 50(8):1250–1257, 2002; ten Brink, Speidel, and Yan, Proc. IEEE GLOBECOM, 1998. LDPC: the normalised min-sum of [`ldpc_decode`](@ref). Switching thresholds: Goldsmith, 2005, §9.3. Outer-loop step ratio: Sampath, Kumar, and Holtzman, Proc. IEEE VTC, 1997, pp. 929–933.
+CRC: ITU-T V.41 polynomial, systematic register as in [`crc16_ccitt`](@ref). Convolutional code and Viterbi: Proakis and Salehi, 5th ed., §8.2. Puncture masks: Yasuda, Kashiki, and Hirata, IEEE Trans. Commun., 32(3):315–319, 1984. Chase combining: Chase, IEEE Trans. Commun., 33(5):385–393, 1985. Incremental redundancy by rate-compatible puncturing: Hagenauer, IEEE Trans. Commun., 36(4):389–400, 1988. BICM-ID: Li, Chindapol, and Ritcey, IEEE Trans. Commun., 50(8):1250–1257, 2002; ten Brink, Speidel, and Yan, Proc. IEEE GLOBECOM, 1998. LDPC: the normalised min-sum of [`ldpc_decode`](@ref). Switching thresholds: Goldsmith, 2005, §9.3. Outer-loop step ratio: Sampath, Kumar, and Holtzman, Proc. IEEE VTC, 1997, pp. 929–933.
 """
 function simulate_link(esn0_db::Real, n_blocks::Integer;
                        table::AbstractVector{MCS}=teaching_mcs_table(),
@@ -731,7 +740,8 @@ function simulate_link(esn0_db::Real, n_blocks::Integer;
                        bicm_iterations::Integer=1,
                        bicm_n_rows::Integer=0,
                        bicm_labels=nothing,
-                       bicm_llr_clip::Real=50)
+                       bicm_llr_clip::Real=50,
+                       harq::Symbol=:chase)
     snr = float(esn0_db)
     (snr == Inf || isfinite(snr)) || throw(ArgumentError(
         "Es/N0 must be finite or +Inf, got $esn0_db",
@@ -809,6 +819,30 @@ function simulate_link(esn0_db::Real, n_blocks::Integer;
             end
         end
     end
+    harq === :chase || harq === :ir || throw(ArgumentError(
+        "harq must be :chase or :ir, got $(repr(harq))",
+    ))
+    if harq === :ir
+        receiver === :viterbi || throw(ArgumentError(
+            "harq=:ir combines complementary puncture words on the :viterbi " *
+            "receiver; receiver=:bicm repeats one interleaved word (harq=:chase)",
+        ))
+        chosen_ir = mcs === nothing ? table : (table[mcs],)
+        for row in chosen_ir
+            row.family === :convolutional || throw(ArgumentError(
+                "harq=:ir sends the deleted bits of the convolutional mother code; " *
+                "$(row.name) is $(row.family)",
+            ))
+            if row.rate != 1//2
+                n_fill = row.n_mother - row.n_coded
+                n_fill % bits_per_symbol(row.scheme) == 0 || throw(ArgumentError(
+                    "harq=:ir retransmits the $n_fill deleted mother bits of " *
+                    "$(row.name), not divisible by " *
+                    "$(bits_per_symbol(row.scheme)) bits/symbol",
+                ))
+            end
+        end
+    end
     if channel_quality === :genie && initial_esn0_db !== nothing
         throw(ArgumentError("initial_esn0_db applies only when channel_quality is :moment"))
     end
@@ -854,6 +888,8 @@ function simulate_link(esn0_db::Real, n_blocks::Integer;
         decoded = Int[]
         ack = false
         n_tx = 0
+        ir_row = harq === :ir && row.family === :convolutional && row.rate != 1//2
+        ir_uses = 0
         if receiver === :bicm
             # Encode, puncture, interleave, map. A repeat sends that same word.
             symbols = bicm_map(info, row.scheme; encoder=:conv, n_rows=bicm_n_rows,
@@ -876,6 +912,36 @@ function simulate_link(esn0_db::Real, n_blocks::Integer;
                                      labels=bicm_labels, rate=row.rate,
                                      llr_clip=bicm_llr_clip)
                 decoded = result.bits
+                if length(decoded) == row.n_encoder_in && crc_check(decoded)
+                    ack = true
+                    break
+                end
+            end
+        elseif ir_row
+            # Teaching IR: odd transmissions send pattern A (the puncture_mask
+            # word), even transmissions send the complementary mask, i.e. the
+            # mother bits A deleted. Observations are summed per mother
+            # position, so after an even transmission every mother bit has been
+            # observed once. The complement word is shorter than the A word, so
+            # `ir_uses` accumulates what each transmission actually sends. A
+            # rate-1/2 row has no deleted bits and never reaches this branch.
+            mother = conv_encode(info)
+            mask_a = puncture_mask(row.rate)
+            mask_b = 1 .- mask_a
+            acc = zeros(Float64, row.n_mother)
+            first_rx = modulate(puncture(mother, mask_a), row.scheme)
+            for tx in 1:max_tx
+                n_tx = tx
+                mask = isodd(tx) ? mask_a : mask_b
+                symbols = modulate(puncture(mother, mask), row.scheme)
+                rx = awgn(symbols, snr; energy_per_bit=1.0)
+                if tx == 1
+                    first_rx = rx
+                end
+                ir_uses += length(symbols)
+                acc .+= depuncture(_channel_llr(rx, snr, row.scheme, approx), mask,
+                                   row.n_mother; fill=0.0)
+                decoded = viterbi_decode(acc)
                 if length(decoded) == row.n_encoder_in && crc_check(decoded)
                     ack = true
                     break
@@ -915,7 +981,7 @@ function simulate_link(esn0_db::Real, n_blocks::Integer;
         end
         errors = _payload_errors(payload, decoded, row.n_encoder_in)
         delivered = ack && errors == 0
-        uses = n_tx * row.n_symbols
+        uses = ir_row ? ir_uses : n_tx * row.n_symbols
         n_ack += ack
         n_delivered += delivered
         n_success_bits += delivered ? row.payload_bits : 0

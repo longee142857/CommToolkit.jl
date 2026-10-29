@@ -28,7 +28,9 @@
 | `Visualization` | `src/visualization.jl`。星座、眼图、脉冲响应在扩展 `ext/CommToolkitPlotsExt.jl`，`using Plots` 之后才加载 |
 | `Sync` | `src/sync.jl` |
 
-`test/contract.jl` 要求 `pkgversion(CommToolkit) == v"1.1.1"`，并核对三件事。`names(CommToolkit)` 比本节清单多一个名字，即模块自己的 `CommToolkit`；去掉它之后清单与 `names` 相同。各子模块的 `names` 同样含有该子模块自己的名字；去掉这些模块名之后，子模块导出的并集比清单多且只多 `modulation`。每个清单里的名字，以及 `CommToolkit` 和 `CommToolkit.modulation`，都出现在 `docs/src/index.md` 的 `@docs` 块里。
+1.1.2 是 1.x 内的增加：`simulate_link` 增加关键字 `harq`（`:chase` 默认，与 1.0.0 逐比特一致；`:ir` 是删余卷积行上的教学增量冗余），稳定清单不增删名字，已有位置参数和返回值不变。
+
+`test/contract.jl` 要求 `pkgversion(CommToolkit) == v"1.1.2"`，并核对三件事。`names(CommToolkit)` 比本节清单多一个名字，即模块自己的 `CommToolkit`；去掉它之后清单与 `names` 相同。各子模块的 `names` 同样含有该子模块自己的名字；去掉这些模块名之后，子模块导出的并集比清单多且只多 `modulation`。每个清单里的名字，以及 `CommToolkit` 和 `CommToolkit.modulation`，都出现在 `docs/src/index.md` 的 `@docs` 块里。
 
 ## 稳定导出
 
