@@ -1,5 +1,17 @@
 # 变更记录
 
+## 1.1.0
+
+EXIT 图教学测量（软信息互信息）。这是 1.x 的加法：稳定面新增 `EXIT` 子模块的 8 个名字，1.0.0 已有名字的位置参数、返回值与语义都不变，`bicm_demap`、`bcjr_decode`、`ldpc_decode_details` 一个字符都没有改。教学 EXIT / 直方图互信息，不是 NR LDPC 的 EXIT 生产工具：没有密度进化，没有次数分布优化，没有 3GPP 码或速率匹配，也没有迭代轨迹跟踪。有意留在范围之外的仍是短 Reed–Solomon、TR 38.901 的 CDL、路线 C 的多用户 xApp、NR LDPC。
+
+- 互信息估计：`exit_mi_soft(llr, bits)` 是 Hagenauer（Proc. 12th EUSIPCO，Vienna，2004，pp. 1541–1548）的无直方图软估计 ``1 - \frac1N\sum\log_2(1+e^{-(1-2b)L})``，假定等概比特与一致（真后验）LLR；单类输入合法（全零字惯例），``\pm\infty`` 按定义处理。`exit_mi_hist(llr, bits; nbins, clip)` 是 ten Brink（IEEE Trans. Commun. 49(10):1727–1737，2001）的直方图估计，只做两类条件直方图，不需要一致性，但有分箱偏差，两类比特都必须出现。LLR 约定与全包一致：bit0 为正，外信息 = 后验 − 先验（Hagenauer、Offer 与 Papke，IEEE Trans. Inf. Theory 42(2):429–445，1996）。
+- 高斯对称捷径：`exit_j(σ)` 与 `exit_jinv(I)` 是 ten Brink、Speidel 与 Yan（IEEE Trans. Commun. 52(4):670–678，2004，式 (9)–(11)）的多项式近似。这是写明的可选捷径，不是测量，也不是精确积分；文档字符串写清了近似量级。
+- 传递曲线：`exit_demap_transfer(scheme; ia, esn0_db, labels, approx, ...)` 在单位能量 AWGN 上测 `bicm_demap` 的 ``I_E = T(I_A)``，先验是合成的一致高斯 LLR（EXIT 测量的标准假设），``I_A = 1`` 用 `sigma_max` 截成有限。`exit_decoder_transfer(; decoder=:bcjr | :ldpc, ebn0_db, ...)` 测信息比特外信息的传递特性：`:bcjr` 走 `conv_encode` + `bcjr_decode`（返回的已是外信息），`:ldpc` 走 `ldpc_decode_details`（`early_stop=false`，外信息 = 后验 − 先验，先验折进信道 LLR 入口）。SOVA 与 Turbo 不接：公开接口没有编码比特外信息。曲线装在 `EXITCurve(ia, ie)` 里。
+- 随机流：传递曲线用模块内的 xorshift64* + Box–Muller 局部流（与 `test/bicm.jl` 的构造相同），`seed` 固定时跨 Julia 版本可复现，不消耗全局随机数。默认种子 `0x0c0de1162`。
+- 作图：`plot_exit_chart`（`using Plots` 后由 `CommToolkitPlotsExt` 提供）画解调曲线与交换坐标轴的译码曲线；只画测到的曲线，不模拟轨迹。
+- 对照：`test/exit.jl`。BIAWGN 一致 LLR 的互信息对照数值积分（`test/reference.jl` 的 `biawgn_llr_mi`，Simpson，无初等闭式）：``N = 200000`` 时两种估计偏差 ≤ 0.01，``J(2/\sigma)`` 近似偏差 ≤ 0.005。解调锚点：BPSK 与 Gray QPSK 在 ``I_A = 0`` 等于该积分、曲线平坦；6 dB 的 8-PSK 集合分割 ``T(0.98) - T(0) > 0.2``，Gray 接近平坦。译码锚点：10 dB 时 (7, 5) BCJR 的 ``T(0) > 0.99``；0 dB 时 ``T(0.99)`` 明显高于 ``T(0)``；阵列 LDPC 烟测。一致性反面教材固定在种子里：循环图上泛洪 sum-product 在 2.5 dB 的过度自信错误 LLR 使 `:soft` 远低于 `:hist`。打印对照在 `demos/exit_chart.jl`，不加载 Plots。
+- 契约：`docs/src/api.md` 增加 EXIT 一节与 `src/exit.jl` 一行；`test/contract.jl` 的子模块清单加 `:EXIT`，版本钉到 1.1.0。边界、已知限制、验证矩阵、README 与之一致。
+
 ## 1.0.0
 
 公开接口按 SemVer 冻成 1.0。这一版不增加算法，不改已有函数的位置参数和返回值，也不改 `docs/src/api.md` 里已经列出的名字。`using CommToolkit` 带入的名字就是稳定面。删除、改名，或改变位置参数和已有返回值的含义，必须升主版本号，并写进本文件。1.x 可以增加名字；增加本身不升主版本。

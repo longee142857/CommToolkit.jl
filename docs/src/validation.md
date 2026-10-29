@@ -6,7 +6,7 @@
 
 `demos/` 不在 `Pkg.test` 里。`demos/ber_16qam.jl` 画的是高信噪比近似，不是 Cho–Yoon 精确式。`demos/ber_comparison.jl` 只画仿真点，没有闭式曲线。`demos/validation_figure.jl` 的四条曲线是 v0.6 之前的图：AWGN 下的 BPSK、QPSK、16-QAM，以及平坦瑞利下的 BPSK。`demos/link_puncture_bicm.jl` 打印删余表的固定行、自适应和 Chase，以及 8-PSK 的 1 次与 4 次迭代。
 
-统计规则和公式出处也写在 `test/reference.jl` 文件头。下表把每个测试文件都点到：`test/algebraic.jl`、`test/bicm.jl`、`test/contract.jl`、`test/evm.jl`、`test/interleave.jl`、`test/jakes_nakagami.jl`、`test/kronecker_mimo.jl`、`test/ldpc.jl`、`test/link.jl`、`test/lms_dfe.jl`、`test/psk_rice_mrc.jl`、`test/pulse_fir.jl`、`test/reference.jl`、`test/runtests.jl`、`test/scrambling.jl`、`test/sova.jl`、`test/sync.jl`、`test/turbo.jl`、`test/waterfill.jl`。
+统计规则和公式出处也写在 `test/reference.jl` 文件头。下表把每个测试文件都点到：`test/algebraic.jl`、`test/bicm.jl`、`test/contract.jl`、`test/evm.jl`、`test/exit.jl`、`test/interleave.jl`、`test/jakes_nakagami.jl`、`test/kronecker_mimo.jl`、`test/ldpc.jl`、`test/link.jl`、`test/lms_dfe.jl`、`test/psk_rice_mrc.jl`、`test/pulse_fir.jl`、`test/reference.jl`、`test/runtests.jl`、`test/scrambling.jl`、`test/sova.jl`、`test/sync.jl`、`test/turbo.jl`、`test/waterfill.jl`。
 
 | 模块 | 量 | 闭式或参照 | 测试 | 演示 |
 |---|---|---|---|---|
@@ -33,6 +33,7 @@
 | Coding | ``\mathrm{GF}(2^m)``、Hamming(7,4)、BCH(15,7) | 域运算对照固定本原多项式。Hamming 伴随式用 Lin 与 Costello §3.2 的列顺序。BCH 设计距离 5，纠正 2 个错误。没有误码率曲线 | `test/algebraic.jl` | 无 |
 | Coding | 短 LDPC | 树上的 sum-product 与逐比特 MAP 一致。`array_ldpc(3, 6, 11)`（``n = 66``，``k = 35``）在 2.5 dB 与 3.5 dB、各 1000 帧、种子 `0x0c0de1162`，归一化 min-sum 与 sum-product 的信息比特 BER 和 BLER 上界低于未编码 BPSK。构造与译码的文献在 `test/ldpc.jl` 文件头：Gallager 1962，Fan 2000，Lin 与 Costello §3.2，Kschischang、Frey 与 Loeliger 2001，Fossorier、Mihaljević 与 Imai 1999，Chen 与 Fossorier 2002。不是密度进化阈值。Hamming 校验图含 4 环，不是最大似然 | `test/ldpc.jl` | 无 |
 | BICM | 8-PSK 集合分割上的迭代增益 | 无容量闭式。终止 (7, 5)，``E_s = 1``，``R = 400/804``，``E_b = 1/(3R) = 0.67``，max-log。AWGN、``E_b/N_0 = 6\,\mathrm{dB}``、80 帧：4 次迭代相对 1 次，信息比特 BER 和 BLER 的区间互不重叠。理想 CSI 逐符号瑞利在 8 dB、40 帧同样分开。标签是 Ungerboeck，IEEE Trans. Inf. Theory 28(1):55–67，1982，不是 Gray | `test/bicm.jl` | `demos/ber_bicm_id.jl` |
+| EXIT | 软信息互信息与解映射 / 译码传递曲线 | BIAWGN 一致 LLR 的互信息对照数值积分（`biawgn_llr_mi`，无初等闭式）：``N = 200000`` 时 `:soft` 与 `:hist` 估计的偏差都在 0.01 以内，``J(2/\sigma)`` 多项式近似在 0.005 以内。恒等式见 Hagenauer，Proc. 12th EUSIPCO，2004，pp. 1541–1548；直方图形式见 ten Brink，IEEE Trans. Commun. 49(10):1727–1737，2001；``J(\sigma)`` 与逆近似见 ten Brink、Speidel 与 Yan，IEEE Trans. Commun. 52(4):670–678，2004，式 (9)–(11)；``L_e = L_{\mathrm{post}} - L_a`` 见 Hagenauer、Offer 与 Papke，IEEE Trans. Inf. Theory 42(2):429–445，1996。解调锚点：BPSK 与 Gray QPSK 在 ``I_A = 0`` 等于该积分，曲线平坦；6 dB 的 8-PSK 集合分割 ``T(0.98) - T(0) > 0.2``，Gray 接近平坦且起点更高。译码锚点：``E_b/N_0 = 10\,\mathrm{dB}`` 时 (7, 5) BCJR 的 ``T(0) > 0.99``；0 dB 时 ``T(0.99)`` 明显高于 ``T(0)``；阵列 LDPC 烟测。一致性反面教材固定在种子 ``0x0c0de1162`` 里：循环图上泛洪 sum-product 在 2.5 dB 给出过度自信的错误 LLR，`:soft` 远低于 `:hist` | `test/exit.jl` | `demos/exit_chart.jl` |
 | Link | CRC-16 | CRC-16/XMODEM：ASCII `"123456789"` 的余数是 `0x31C3`。``g(x)`` 的倍式漏检。单比特翻转被检出 | `test/link.jl` | 无 |
 | Link | 五档 MCS、Chase 合并、门限自适应 | 无闭式 BLER。无噪声时每一档吞吐等于该档频谱效率。``E_s/N_0 = 5\,\mathrm{dB}`` 的 16-QAM 卷积码上，3 次 Chase 相对单次传输的 CRC 失败率区间（100 个块）互不重叠，合并后吞吐更高。5 dB 的自适应（QPSK 阵列 LDPC）吞吐下界高于固定 BPSK，也高于固定 64-QAM；16 dB 的自适应（64-QAM）下界高于固定 BPSK。门限来自 `teaching_amc_thresholds` | `test/link.jl` | `demos/link_mcs_harq.jl` |
 | Link | 删余卷积 MCS、同一删余字的 Chase、链路内 BICM | 无新的闭式 BLER。种子 `0x0c0de1162`，每点 80 块，Clopper–Pearson ``\alpha = 10^{-4}``。3 dB 自适应（QPSK 1/2）吞吐下界高于固定 BPSK，也高于固定 16-QAM；10 dB 自适应（16-QAM）下界高于固定 BPSK。2 dB 的 QPSK 3/4，3 次 Chase 相对单次的 CRC 失败率区间分开。8-PSK 集合分割、``E_s/N_0 = 6\,\mathrm{dB}``：链路内 4 次迭代相对 1 次，净荷比特错误率和 CRC 失败率的区间分开。5 dB 上码率 2/3 与 3/4 几乎打平，不拿来做判据。门限是 `teaching_punctured_amc_thresholds`，不能套到五档表 | `test/link.jl`；删余 BICM 的无噪声往返在 `test/bicm.jl` | `demos/link_puncture_bicm.jl` |
@@ -54,7 +55,7 @@
 
 ## 闭式摘录
 
-下列句子里，Kronecker 那一条是 0.9.3 加上的，定义在 `kronecker_channel` 的文档字符串，不在 `test/reference.jl`。1.0.0 不新增闭式，也不改这张表。其余与 v0.9.0 的 README 验证段相同，公式仍以 `test/reference.jl` 为准。
+下列句子里，Kronecker 那一条是 0.9.3 加上的，定义在 `kronecker_channel` 的文档字符串，不在 `test/reference.jl`。1.0.0 不新增闭式，也不改这张表。1.1.0 增加一条数值积分对照（不是闭式）：BIAWGN 一致 LLR 的互信息 ``I = 1 - \mathbb{E}[\log_2(1+e^{-L})]``，``L = 2y/\sigma^2``，``y \sim \mathcal{N}(1, \sigma^2)``，Simpson 积分在 `test/reference.jl` 的 `biawgn_llr_mi`，它是 ``J(2/\sigma)`` 的精确值（Hagenauer，Proc. 12th EUSIPCO，2004）。其余与 v0.9.0 的 README 验证段相同，公式仍以 `test/reference.jl` 为准。
 
 - AWGN 下 BPSK 与 Gray QPSK：``Q(\sqrt{2 E_b/N_0})``。Proakis 与 Salehi，第 5 版，§5.2。
 - 方形 Gray M-QAM 的精确平均误比特率：Cho 与 Yoon，2002，式 (16)。图中 16-QAM 用的是这个精确式，不是高信噪比近似。
