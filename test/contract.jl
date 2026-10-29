@@ -2,7 +2,7 @@
 # Submodule exports must match it, plus the one intentional qualified name.
 
 @testset "Public API contract" begin
-    @test pkgversion(CommToolkit) == v"1.1.3"
+    @test pkgversion(CommToolkit) == v"1.2.0"
     root = pkgdir(CommToolkit)
     api = read(joinpath(root, "docs", "src", "api.md"), String)
     @test occursin("## v1.0 承诺", api)
@@ -26,7 +26,7 @@
 
     submodules = (
         :Metrics, :Scrambling, :Modulation, :Channel, :Pulse, :Coding,
-        :Interleaving, :BICM, :EXIT, :Link, :Equalization, :OFDM, :MIMO,
+        :Interleaving, :BICM, :EXIT, :Link, :XApp, :Equalization, :OFDM, :MIMO,
         :Visualization, :Sync,
     )
     union_exports = Set{Symbol}()

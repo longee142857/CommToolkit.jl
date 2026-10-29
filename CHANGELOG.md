@@ -1,5 +1,15 @@
 # 变更记录
 
+## 1.2.0
+
+路线 C：教学多用户 KPI→动作迷你 xApp。坐在 1.1.3（短 RS、EXIT、IR-HARQ、教学 CDL）之上，是 1.x 内的增加：稳定导出清单增加 10 个名字，已有名字的位置参数、返回值与语义都不变，`simulate_link` 一个字符都没有改，v1.0.0 的全部默认行为不变。这是教学迷你 xApp，不是 O-RAN：没有 E2 接口，没有 near-RT RIC，没有 E2SM，没有前传 / eCPRI 或功能切分，没有 NR 调度器，没有 NR CQI，也没有 O-RAN 合规声称。有意留在范围之外的仍是完整几何 TR 38.901 CDL（角度、射线、天线几何、空间一致性、MIMO 全矩阵）、NR LDPC、真 O-RAN。
+
+- 模型：`XAppUE(name, esn0_db)` 描述一个 UE（名字加基准 ``E_s/N_0``）。`simulate_xapp(ues, policy, n_rounds; blocks_per_round=30, table=teaching_punctured_mcs_table(), max_tx=1, harq=:chase, approx=:exact, channel=:awgn, power_budget=1.0)` 每轮让策略读累计 `UEKPI`（块数、ACK、交付块、交付比特、信道使用，以及由此算出的 BLER 与吞吐），给每个 UE 指派一个 `XAppAction`——MCS 行、调度份额、功率偏移——再把该轮块预算按份额以最大余数法分块（并列取下标小者），各 UE 在 `基准 + 偏移`（`:rayleigh` 时再加该轮衰落）上跑已有的 `simulate_link`。多用户就是独立单链路加两个共享约束：每轮块预算和份额加权平均功率预算 ``\sum_u \texttt{share}_u 10^{\texttt{offset}_u/10} \le \texttt{power\_budget}``；没有 UE 间干扰模型，没有小区几何。`harq=:ir`、`max_tx`、`approx` 原样转发给 `simulate_link`，检查语义不变。
+- 策略：`FixedXAppPolicy(; mcs=1, shares=nothing, power_offset_db=0.0)` 是固定分配基线，不读 KPI，不做功率控制，超预算即 `ArgumentError`。`RuleXAppPolicy(n_ues; target_bler=0.1, offsets_db=[-3, 0, 3], thresholds_db=teaching_punctured_amc_thresholds())` 是教学规则表：份额 ``\propto 1/(\text{已交付比特}+1)``（Tse 与 Viswanath §6.3 的比例公平风味，不是 3GPP 调度器）；`observe_kpi!` 按累计 BLER 是否超过 `target_bler` 或低于 `target_bler/10` 每次走一档并夹到梯子两端；MCS 用 `select_mcs` 读基准 ``E_s/N_0`` 加投影后偏移（静态 AWGN 上是 genie，`:rayleigh` 下衰落不进决策）。预算投影在超限时把在用最高档降一档，最低档仍不可行才报错。KPI 从第 1 轮累计，没有滑动窗，这是写明的教学简化。
+- 报告：`XAppReport` 汇总每 UE 的 `UEKPI`、系统吞吐（bit/use，符号率 1、奈奎斯特带宽 1 Hz 时即聚合频谱效率）、系统 BLER，以及按每 UE 交付净荷比特算的 `jain_index`（Jain、Chiu 与 Hawe，DEC-TR-301，1984；全零返回 `NaN`）。`:rayleigh` 是理想 CSI 的轮粒度块衰落，每轮每 UE 一个 ``\mathcal{CN}(0,1)``，dB 夹到不低于 −60，与 `rayleigh_channel(..., true)` 同一条件等价，不是新 PHY；随机流顺序写在 `simulate_xapp` 的文档字符串里，同一颗种子两种策略看到同一条流。
+- 诚实的对照（`test/xapp.jl`）：构造与参数校验、Jain 定义值、规则表在合成 KPI 上的份额排序 / 走档夹持 / 预算投影与 MCS 跟随、无噪声闭环的精确频谱效率与 Jain 值、`:awgn` / `:rayleigh` 同种子逐字段复现，外加一组种子固定的基线对照——3 个 UE（0、3、6 dB），20 轮 × 30 块，固定 QPSK-1/2 均匀份额对规则表，两臂各 600 块且各臂 NACK ≥ 30，交付块数的 Clopper–Pearson 区间（``\alpha = 10^{-4}``）分开，系统吞吐与 Jain 是同一流上的点估计对照。计数不锁死。演示 `demos/xapp_multiuser.jl` 打印对照表，不加载 Plots。
+- 文档与契约：`docs/src/api.md` 增加 `XApp` 一节与 `src/xapp.jl` 一行；`docs/src/index.md` 增加 `@docs` 块；边界、已知限制、验证矩阵与 README 同步，路线 C 收入范围；`docs/make.jl` 的 `modules` 加 `CommToolkit.XApp`；`test/runtests.jl` 与 `test/contract.jl` 的版本断言升到 `v"1.2.0"`，子模块清单加 `:XApp`。没有触碰 `fpga/ax7020`，也没有触碰 1.1.0 的 RS 面、1.1.1 的 EXIT、1.1.2 的 `harq` 关键字、1.1.3 的 `src/cdl.jl`。
+
 ## 1.1.3
 
 教学簇延迟线（Clustered Delay Line，CDL）：TR 38.901 CDL-A/B/C 延迟–功率剖面上的可复现多径，供 OFDM 与链路 demo 使用。坐在 1.1.2（短 RS、EXIT、IR-HARQ）之上，是 1.x 内的增加：稳定导出清单增加 6 个名字，已有名字的位置参数、返回值与语义都不变，v1.0.0 的全部默认行为不变。这是教学 CDL，不是完整 3GPP 信道实现，也不声称 NR 合规：没有角度、没有每簇 20 射线、没有天线几何、没有空间一致性、没有 MIMO 全矩阵。有意留在范围之外的仍是完整几何 TR 38.901 CDL、路线 C 的多用户 xApp、NR LDPC。
