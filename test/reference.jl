@@ -20,7 +20,7 @@
 # Soft-decision pairwise error on antipodal AWGN: Proakis and Salehi, 5th ed., §8.2,
 #   P2(d) = Q(sqrt(2 d R Eb/N0)) with R = 1/2.
 # Clopper–Pearson interval: Clopper and Pearson, Biometrika 26(4):404–413, 1934.
-# BIAWGN consistent-LLR mutual information (1.1.0, EXIT tests): the identity
+# BIAWGN consistent-LLR mutual information (1.1.1, EXIT tests): the identity
 #   I = 1 − E[log2(1 + exp(−L))] on L = 2y/σ², y ~ N(1, σ²), Hagenauer,
 #   Proc. 12th EUSIPCO, Vienna, 2004, pp. 1541–1548; histogram form ten Brink,
 #   IEEE Trans. Commun. 49(10):1727–1737, 2001. No elementary closed form:

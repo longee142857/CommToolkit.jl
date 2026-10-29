@@ -4,7 +4,7 @@
 
 从 1.0.0 起，下面「稳定导出」列出的名字是稳定面。`using CommToolkit` 带入的符号与这份清单相同，也与各子模块的 `export` 相同，并都出现在 [API Reference](index.md) 的 `@docs` 块里。删除、改名，或改变位置参数和已有返回值的含义，是破坏性变更，必须升主版本号，并写进 `CHANGELOG`。1.x 可以增加名字；增加本身不升主版本。
 
-1.0.0 不增加算法，也不改已有函数的位置参数和返回值。1.0.0 的清单停在 0.9.3 已经导出的名字上：0.9.1 把当时的导出写成契约；0.9.2 增加 `teaching_punctured_mcs_table` 与 `teaching_punctured_amc_thresholds`，把删余码率和 BICM 接进 MCS / Chase；0.9.3 增加 `exponential_correlation`、`kronecker_channel` 与 `apply_kronecker`，即平坦 Kronecker 空间相关。1.1.0 按 1.x 的加法规则增加 `EXIT` 一组名字（`EXITCurve`、`exit_mi_soft`、`exit_mi_hist`、`exit_j`、`exit_jinv`、`exit_demap_transfer`、`exit_decoder_transfer`、`plot_exit_chart`），即 EXIT 图教学互信息测量；已有名字的位置参数、返回值与语义都不变。这是契约页，不是教程。
+1.0.0 不增加算法，也不改已有函数的位置参数和返回值：清单停在 0.9.3 已经导出的名字上（0.9.1 把当时的导出写成契约；0.9.2 增加 `teaching_punctured_mcs_table` 与 `teaching_punctured_amc_thresholds`，把删余码率和 BICM 接进 MCS / Chase；0.9.3 增加 `exponential_correlation`、`kronecker_channel` 与 `apply_kronecker`，即平坦 Kronecker 空间相关）。1.1.0 按承诺只增不破：增加 `RSCode`、`rs_code`、`rs_shorten`、`rs_encode`、`rs_decode` 五个名字，即短 Reed–Solomon；已有名字一个不动。1.1.1 按同一加法规则增加 `EXIT` 一组名字（`EXITCurve`、`exit_mi_soft`、`exit_mi_hist`、`exit_j`、`exit_jinv`、`exit_demap_transfer`、`exit_decoder_transfer`、`plot_exit_chart`），即 EXIT 图教学互信息测量；已有名字的位置参数、返回值与语义都不变。这是契约页，不是教程。
 
 未导出的名字不是契约。这包括下划线开头的内部函数，以及子模块里的常数（例如 `Coding.CONV_G1`、`Coding._rsc_encode`）。子模块可以写成 `CommToolkit.Modulation`，但 `using CommToolkit` 不把子模块名字本身带进当前作用域。
 
@@ -28,7 +28,7 @@
 | `Visualization` | `src/visualization.jl`。星座、眼图、脉冲响应在扩展 `ext/CommToolkitPlotsExt.jl`，`using Plots` 之后才加载 |
 | `Sync` | `src/sync.jl` |
 
-`test/contract.jl` 要求 `pkgversion(CommToolkit) == v"1.1.0"`，并核对三件事。`names(CommToolkit)` 比本节清单多一个名字，即模块自己的 `CommToolkit`；去掉它之后清单与 `names` 相同。各子模块的 `names` 同样含有该子模块自己的名字；去掉这些模块名之后，子模块导出的并集比清单多且只多 `modulation`。每个清单里的名字，以及 `CommToolkit` 和 `CommToolkit.modulation`，都出现在 `docs/src/index.md` 的 `@docs` 块里。
+`test/contract.jl` 要求 `pkgversion(CommToolkit) == v"1.1.1"`，并核对三件事。`names(CommToolkit)` 比本节清单多一个名字，即模块自己的 `CommToolkit`；去掉它之后清单与 `names` 相同。各子模块的 `names` 同样含有该子模块自己的名字；去掉这些模块名之后，子模块导出的并集比清单多且只多 `modulation`。每个清单里的名字，以及 `CommToolkit` 和 `CommToolkit.modulation`，都出现在 `docs/src/index.md` 的 `@docs` 块里。
 
 ## 稳定导出
 
@@ -108,6 +108,11 @@
 - `hamming74_decode`
 - `bch157_encode`
 - `bch157_decode`
+- `RSCode`
+- `rs_code`
+- `rs_shorten`
+- `rs_encode`
+- `rs_decode`
 - `LDPCCode`
 - `LDPCResult`
 - `gallager_ldpc`

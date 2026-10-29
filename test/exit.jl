@@ -1,4 +1,4 @@
-# EXIT chart utilities (1.1.0). Deterministic throughout: the transfer curves
+# EXIT chart utilities (1.1.1). Deterministic throughout: the transfer curves
 # use the module's seeded xorshift64* + Box–Muller stream, and the estimator
 # checks below replicate that stream locally, as test/bicm.jl does, because
 # Julia's global `randn` is not stable across 1.x versions.
