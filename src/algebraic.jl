@@ -1,6 +1,7 @@
-# GF(2^m) for m = 2, 3, 4, the [7, 4] Hamming syndrome decoder, and the
-# binary primitive BCH code of length 15, dimension 7, designed distance 5.
-# Not a Reed–Solomon library and not a general-n BCH constructor.
+# GF(2^m) for m = 2, 3, 4, the [7, 4] Hamming syndrome decoder, the binary
+# primitive BCH code of length 15, dimension 7, designed distance 5, and
+# narrow-sense primitive Reed–Solomon codes over those fields.
+# Not a general-n BCH constructor and not a long (CCSDS) Reed–Solomon library.
 
 const _GF_PRIMS = Dict{Int,Int}(
     2 => 0b111,      # x^2 + x + 1
@@ -19,7 +20,7 @@ Elements are integers ``0,\ldots,2^m-1``. The integer is the bitmask of a polyno
 x^2+x+1,\qquad x^3+x+1,\qquad x^4+x+1.
 ```
 
-``m=4`` is the field under [`bch157_encode`](@ref). There is no ``\mathrm{GF}(2^8)`` table and no Conway polynomial search. Build the field with `GF2m(m)`; the fields of the struct are the log and antilog tables and are not a second constructor.
+``m=4`` is the field under [`bch157_encode`](@ref), and these fields are the symbol fields of [`rs_code`](@ref). There is no ``\mathrm{GF}(2^8)`` table and no Conway polynomial search. Build the field with `GF2m(m)`; the fields of the struct are the log and antilog tables and are not a second constructor.
 
 # References
 Lidl and Niederreiter, *Finite Fields*, 2nd ed., Cambridge, 1997, §2.5, for the polynomial representation. The three polynomials are the standard primitive ones of those degrees (Lin and Costello, *Error Control Coding*, 2nd ed., Appendix A).
@@ -304,4 +305,298 @@ function bch157_decode(received::AbstractVector{<:Integer})
         end
     end
     return rx[1:_BCH157_K]
+end
+
+# ---------- Narrow-sense primitive Reed–Solomon codes ----------
+
+# Evaluate a polynomial over F whose coefficients are given highest degree
+# first (the codeword order of rs_encode and bch157_encode). Unlike _horner,
+# the coefficients are arbitrary field elements.
+function _gf_eval(F::GF2m, coefs::AbstractVector{Int}, point::Int)
+    acc = 0
+    for c in coefs
+        acc = xor(gf_mul(F, acc, point), c)
+    end
+    return acc
+end
+
+# Same evaluation for a polynomial stored lowest degree first (Berlekamp–Massey
+# output and derived polynomials).
+function _gf_eval_low(F::GF2m, coefs::Vector{Int}, point::Int)
+    acc = 0
+    for i in length(coefs):-1:1
+        acc = xor(gf_mul(F, acc, point), coefs[i])
+    end
+    return acc
+end
+
+# Formal derivative over GF(2^m): p x^p differentiates to c x^(p-1) for odd p
+# and to 0 for even p.
+function _gf_deriv_low(coefs::Vector{Int})
+    length(coefs) == 1 && return Int[0]
+    out = zeros(Int, length(coefs) - 1)
+    for p in 1:(length(coefs) - 1)
+        if isodd(p)
+            out[p] = coefs[p + 1]
+        end
+    end
+    return out
+end
+
+# Remainder of a high-degree-first polynomial divided by the monic g over F.
+function _gf_poly_mod(F::GF2m, dividend::Vector{Int}, g::Vector{Int})
+    r = copy(dividend)
+    deg = length(g) - 1
+    n = length(r)
+    @inbounds for i in 1:(n - deg)
+        c = r[i]
+        if c != 0
+            for j in 2:(deg + 1)
+                r[i + j - 1] ⊻= gf_mul(F, c, g[j])
+            end
+        end
+    end
+    return r[(n - deg + 1):n]
+end
+
+# g(x) = prod_{j=1}^{nroots} (x + α^j), α = x, stored highest degree first.
+function _rs_generator(F::GF2m, nroots::Int)
+    g = Int[1]
+    for j in 1:nroots
+        root = gf_pow(F, 2, j)
+        h = Vector{Int}(undef, length(g) + 1)
+        h[1] = g[1]
+        for i in 2:length(g)
+            h[i] = xor(g[i], gf_mul(F, g[i - 1], root))
+        end
+        h[length(g) + 1] = gf_mul(F, g[end], root)
+        g = h
+    end
+    return g
+end
+
+# S_j = r(α^j) for j = 1..d, r stored highest degree first.
+function _rs_syndromes(F::GF2m, word::Vector{Int}, d::Int)
+    S = Vector{Int}(undef, d)
+    x = 2
+    for j in 1:d
+        S[j] = _gf_eval(F, word, x)
+        x = gf_mul(F, x, 2)
+    end
+    return S
+end
+
+# Massey's shift-register synthesis on the syndrome sequence S_1..S_d. Returns
+# the error-locator polynomial Λ (lowest degree first) and its degree L.
+function _berlekamp_massey(F::GF2m, S::Vector{Int})
+    Λ = Int[1]
+    B = Int[1]
+    L = 0
+    m = 1
+    b = 1
+    for r in 0:(length(S) - 1)
+        d = S[r + 1]
+        for i in 1:L
+            i + 1 > length(Λ) && break
+            d ⊻= gf_mul(F, Λ[i + 1], S[r + 1 - i])
+        end
+        if d == 0
+            m += 1
+            continue
+        end
+        coef = gf_div(F, d, b)
+        T = copy(Λ)
+        for _ in 1:(m + length(B) - length(Λ))
+            push!(Λ, 0)
+        end
+        for j in 1:length(B)
+            B[j] == 0 && continue
+            Λ[j + m] ⊻= gf_mul(F, coef, B[j])
+        end
+        if 2L <= r
+            L = r + 1 - L
+            B = T
+            b = d
+            m = 1
+        else
+            m += 1
+        end
+    end
+    return Λ, L
+end
+
+# Ω(x) ≡ S(x) Λ(x) (mod x^d) with S(x) = S_1 + S_2 x + ..., lowest degree first.
+function _rs_key_equation(F::GF2m, S::Vector{Int}, Λ::Vector{Int})
+    Ω = zeros(Int, length(S))
+    for i in 1:length(S)
+        S[i] == 0 && continue
+        for j in 1:length(Λ)
+            Λ[j] == 0 && continue
+            deg = i + j - 2
+            deg >= length(S) && continue
+            Ω[deg + 1] ⊻= gf_mul(F, S[i], Λ[j])
+        end
+    end
+    return Ω
+end
+
+@doc raw"""
+    RSCode
+
+Narrow-sense primitive Reed–Solomon code over [`GF2m`](@ref). Built by [`rs_code`](@ref), shortened by [`rs_shorten`](@ref), and used by [`rs_encode`](@ref) and [`rs_decode`](@ref).
+
+The fields are the parameter list of the code, not a second constructor. `F` is the symbol field; `n` and `k` are the effective length and dimension after shortening; `t` is the guaranteed correction radius ``\lfloor (n-k)/2 \rfloor``; `g` is the generator polynomial with the coefficient of the highest power first; `s` is the number of shortened symbols.
+"""
+struct RSCode
+    F::GF2m
+    n::Int
+    k::Int
+    t::Int
+    g::Vector{Int}
+    s::Int
+end
+
+function Base.show(io::IO, C::RSCode)
+    print(io, "RS(", C.n, ", ", C.k, ") over GF(2^", C.F.m, ")")
+    C.s == 0 || print(io, ", shortened by ", C.s)
+    return nothing
+end
+
+@doc raw"""
+    rs_code(m::Integer, k::Integer) -> RSCode
+
+Narrow-sense primitive Reed–Solomon ``(n, k)`` code over ``\mathrm{GF}(2^m)`` with ``n = 2^m - 1``.
+
+The field is [`GF2m`](@ref)`(m)` with ``m \in \{2, 3, 4\}``, so ``n \in \{3, 7, 15\}``. The generator has the ``n - k`` consecutive roots ``\alpha, \alpha^2, \ldots, \alpha^{n-k}``, ``\alpha = x``:
+
+```math
+g(x) = \prod_{j=1}^{n-k} \bigl(x + \alpha^j\bigr).
+```
+
+By the BCH bound the minimum distance is at least ``n - k + 1``, and a Reed–Solomon code meets the Singleton bound with equality, so ``d = n - k + 1`` and the guaranteed correction radius is
+
+```math
+t = \left\lfloor \frac{n - k}{2} \right\rfloor .
+```
+
+`k` satisfies ``1 \le k \le n - 1``. ``k = n - 1`` gives ``t = 0``: [`rs_decode`](@ref) then checks the syndrome but corrects nothing. These are short teaching codes. They are not the CCSDS ``(255, 223)`` or ``(255, 239)`` codes, there is no ``\mathrm{GF}(2^8)`` table, and [`rs_decode`](@ref) is a hard-decision bounded-distance decoder, not a soft or list decoder.
+
+# References
+Reed and Solomon, J. SIAM 8(2):300–304, 1960; Lin and Costello, *Error Control Coding*, 2nd ed., ch. 7.
+"""
+function rs_code(m::Integer, k::Integer)
+    F = GF2m(m)
+    n = F.order - 1
+    kk = Int(k)
+    (1 <= kk <= n - 1) || throw(ArgumentError(
+        "RS($n, k) over GF(2^$(F.m)) needs 1 <= k <= $(n - 1), got $kk",
+    ))
+    t = (n - kk) >> 1
+    g = _rs_generator(F, n - kk)
+    return RSCode(F, n, kk, t, g, 0)
+end
+
+@doc raw"""
+    rs_shorten(C::RSCode, s::Integer) -> RSCode
+
+Shorten `C` by `s` information symbols: the ``(n, k)`` code becomes the ``(n - s, k - s)`` code with the same generator and the same correction radius ``t``.
+
+[`rs_encode`](@ref) prepends `s` zero symbols to the message, encodes the parent, and drops the `s` leading zeros of the systematic word. [`rs_decode`](@ref) re-inserts the zeros before decoding and refuses any error locator that falls in the shortened positions: those symbols were never transmitted, so such a locator marks an uncorrectable pattern. ``0 \le s \le k - 1`` so the effective dimension stays positive. Shortening does not reduce the minimum distance (Lin and Costello, 2nd ed., ch. 4).
+"""
+function rs_shorten(C::RSCode, s::Integer)
+    ss = Int(s)
+    (0 <= ss <= C.k - 1) || throw(ArgumentError(
+        "shortening RS($(C.n), $(C.k)) needs 0 <= s <= $(C.k - 1), got $ss",
+    ))
+    return RSCode(C.F, C.n - ss, C.k - ss, C.t, C.g, C.s + ss)
+end
+
+@doc raw"""
+    rs_encode(C::RSCode, msg::AbstractVector{<:Integer}) -> Vector{Int}
+
+Systematic encoding of `k` information symbols into the Reed–Solomon codeword of length `n` of [`RSCode`](@ref).
+
+Symbols are integers in ``0, \ldots, 2^m - 1``, the element representation of [`GF2m`](@ref). Entry 1 of the returned vector is the coefficient of ``x^{n-1}`` and entry `n` the coefficient of ``x^0``, the same order as [`bch157_encode`](@ref). The first `k` entries are `msg`; the last ``n - k`` entries are the remainder of ``m(x)\,x^{n-k}`` divided by the generator:
+
+```math
+c(x) = m(x)\,x^{n-k} + \bigl(m(x)\,x^{n-k} \bmod g(x)\bigr),
+```
+
+so ``c(\alpha^j) = 0`` for ``j = 1, \ldots, n - k``. A code from [`rs_shorten`](@ref) takes the effective ``k`` symbols and returns the effective ``n`` symbols.
+"""
+function rs_encode(C::RSCode, msg::AbstractVector{<:Integer})
+    length(msg) == C.k || throw(ArgumentError(
+        "RS($(C.n), $(C.k)) takes $(C.k) information symbols, got $(length(msg))",
+    ))
+    info = [_gf_elem(C.F, a) for a in msg]
+    d = length(C.g) - 1
+    shifted = vcat(zeros(Int, C.s), info, zeros(Int, d))
+    parity = _gf_poly_mod(C.F, shifted, C.g)
+    return vcat(info, parity)
+end
+
+@doc raw"""
+    rs_decode(C::RSCode, rx::AbstractVector{<:Integer}) -> Vector{Int}
+
+Bounded-distance decoding of one received word of [`RSCode`](@ref). Corrects every pattern of at most `t` symbol errors and returns the `k` systematic symbols.
+
+Syndromes are ``S_j = r(\alpha^j)`` for ``j = 1, \ldots, n - k``. The error-locator polynomial ``\Lambda(x)`` comes from the Berlekamp–Massey algorithm, its roots from a Chien search over ``\alpha^1, \ldots, \alpha^n``, and the error values from the Forney formula
+
+```math
+e_J = \frac{\Omega(X_J^{-1})}{\Lambda'(X_J^{-1})},
+\qquad
+\Omega(x) \equiv S(x)\,\Lambda(x) \pmod{x^{\,n-k}},
+```
+
+with ``S(x) = S_1 + S_2 x + \cdots``, ``X_J`` the locator of the error at entry ``J`` (the coefficient of ``x^{\,n-J}``), and ``\Lambda'`` the formal derivative over ``\mathrm{GF}(2^m)``. Entry ``J`` is corrected by XOR with ``e_J``.
+
+The failure contract is the one of [`bch157_decode`](@ref): there is no failure flag. If the locator degree exceeds `t`, the number of roots is not the locator degree, a root falls in the shortened positions of [`rs_shorten`](@ref), or the corrected word still has a nonzero syndrome, the pattern is not a correctable pattern of weight at most `t` and the function returns the `k` received systematic symbols unchanged. A pattern of more than `t` errors may instead be miscorrected to a different codeword; ``d = n - k + 1`` does not promise to correct it.
+
+This is the hard-decision bounded-distance decoder. It is not an erasure decoder, not the Guruswami–Sudan list decoder, and not a soft algebraic decoder such as Kötter–Vardy. `rx` has length `n` and entries in ``0, \ldots, 2^m - 1``, in the same coefficient order as [`rs_encode`](@ref).
+
+# References
+Massey, IEEE Trans. Inf. Theory 15(1):122–127, 1969; Chien, IEEE Trans. Inf. Theory 10(4):357–363, 1964; Forney, IEEE Trans. Inf. Theory 11(4):549–557, 1965; Lin and Costello, 2nd ed., ch. 7.
+"""
+function rs_decode(C::RSCode, rx::AbstractVector{<:Integer})
+    length(rx) == C.n || throw(ArgumentError(
+        "RS($(C.n), $(C.k)) word length must be $(C.n), got $(length(rx))",
+    ))
+    r = [_gf_elem(C.F, a) for a in rx]
+    F = C.F
+    s = C.s
+    N = C.n + s
+    word = s == 0 ? copy(r) : vcat(zeros(Int, s), r)
+    d = length(C.g) - 1
+    S = _rs_syndromes(F, word, d)
+    out = r[1:C.k]
+    all(iszero, S) && return out
+    Λ, L = _berlekamp_massey(F, S)
+    L > C.t && return out
+    locs = Vector{Int}(undef, L)
+    nroots = 0
+    x = 2
+    for J in 1:N
+        if _gf_eval_low(F, Λ, x) == 0
+            nroots += 1
+            nroots <= L && (locs[nroots] = J)
+        end
+        x = gf_mul(F, x, 2)
+    end
+    nroots == L || return out
+    # A root in the shortened positions would correct a symbol that was never
+    # transmitted; the pattern is not a correctable pattern of this code.
+    for i in 1:L
+        locs[i] > s || return out
+    end
+    Ω = _rs_key_equation(F, S, Λ)
+    Λd = _gf_deriv_low(Λ)
+    for i in 1:L
+        J = locs[i]
+        xinv = gf_pow(F, 2, mod(J, N))
+        den = _gf_eval_low(F, Λd, xinv)
+        den == 0 && return out
+        word[J] ⊻= gf_div(F, _gf_eval_low(F, Ω, xinv), den)
+    end
+    all(iszero, _rs_syndromes(F, word, d)) || return out
+    return word[(s + 1):(s + C.k)]
 end

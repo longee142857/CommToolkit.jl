@@ -1,10 +1,10 @@
 # CommToolkit.jl API
 
-API reference for the exported interface of version 1.0.0. This page is not a tutorial. Those exported names are the stable surface; breaking changes require a major version bump.
+API reference for the exported interface of version 1.1.0. This page is not a tutorial. Those exported names are the stable surface; breaking changes require a major version bump.
 
 The stability surface, the validation matrix, and the scope page are written in Chinese, matching the README: [边界](boundaries.md), [公开接口](api.md), [验证矩阵](validation.md), [已知限制](limitations.md).
 
-The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE PHY, it does not implement an O-RAN fronthaul, it does not implement a geometric 3GPP TR 38.901 clustered delay line, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The turbo code is a short memory-2 teaching construction, not a 3GPP turbo code. `bch157_encode` is the binary BCH code of length 15 and dimension 7, not a Reed–Solomon code. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity. Convolutional MCS rows may use the periodic puncture masks; retransmissions still repeat one word. `receiver=:bicm` is a teaching BICM path on those convolutional rows, not NR BICM. `PSK` is coherent Gray ``M``-PSK. `DBPSK` and `DQPSK` are two-symbol differential detectors, not ``\pi/4``-DQPSK. `rice_channel` takes a linear Rice factor. `jakes_fading` is a flat Clarke spectrum on a DFT grid, not a classical Jakes sum of sinusoids. `nakagami_channel` takes the Nakagami parameter `m`. `mrc` is ideal-CSI receive combining, not a MIMO detector. `kronecker_channel` is one flat Kronecker matrix, not a Weichselberger model and not a TR 38.901 CDL or UMi.
+The package simulates textbook baseband links so that Monte Carlo error rates can be checked against closed-form formulas. It does not implement 3GPP NR or LTE PHY, it does not implement an O-RAN fronthaul, it does not implement a geometric 3GPP TR 38.901 clustered delay line, and it is not a production physical-layer stack. LDPC support is a short teaching reference (Gallager and array constructions), not an NR base-graph implementation. The turbo code is a short memory-2 teaching construction, not a 3GPP turbo code. `bch157_encode` is the binary BCH code of length 15 and dimension 7, not a general BCH constructor. `rs_code` adds short narrow-sense primitive Reed–Solomon codes over the same small fields (lengths 3, 7, 15, and shortened forms) with a hard-decision Berlekamp–Massey decoder; they are not the CCSDS long codes and not a soft algebraic decoder. The MCS table, CRC, and Chase combining loop are a link-level teaching reference, not an NR scheduler or HARQ entity. Convolutional MCS rows may use the periodic puncture masks; retransmissions still repeat one word. `receiver=:bicm` is a teaching BICM path on those convolutional rows, not NR BICM. `PSK` is coherent Gray ``M``-PSK. `DBPSK` and `DQPSK` are two-symbol differential detectors, not ``\pi/4``-DQPSK. `rice_channel` takes a linear Rice factor. `jakes_fading` is a flat Clarke spectrum on a DFT grid, not a classical Jakes sum of sinusoids. `nakagami_channel` takes the Nakagami parameter `m`. `mrc` is ideal-CSI receive combining, not a MIMO detector. `kronecker_channel` is one flat Kronecker matrix, not a Weichselberger model and not a TR 38.901 CDL or UMi.
 
 Names are defined in the submodules `Modulation`, `Channel`, `Coding`, `Interleaving`, `BICM`, `Link`, `Equalization`, `OFDM`, `MIMO`, `Visualization`, `Pulse`, `Scrambling`, `Sync`, and `Metrics`, and re-exported here. Plotting functions need Plots.jl; `using CommToolkit` does not load it. Gardner, Costas, and Schmidl–Cox in `Sync` are teaching loops with a stated capture range. They do not replace `ofdm_sync`.
 
@@ -56,7 +56,7 @@ evm
 
 ## Coding
 
-SOVA, the short turbo code, and the algebraic decoders are teaching implementations. They are not a 3GPP turbo code, not NR LDPC, and not a general Reed–Solomon or BCH library. `turbo_decode` is not part of the MCS / HARQ loop.
+SOVA, the short turbo code, and the algebraic decoders are teaching implementations. They are not a 3GPP turbo code, not NR LDPC, and not a general BCH library; the Reed–Solomon codes of `rs_code` are the short narrow-sense primitive ones, not CCSDS long codes. `turbo_decode` is not part of the MCS / HARQ loop.
 
 ```@docs
 conv_encode
@@ -80,6 +80,11 @@ hamming74_encode
 hamming74_decode
 bch157_encode
 bch157_decode
+RSCode
+rs_code
+rs_shorten
+rs_encode
+rs_decode
 LDPCCode
 LDPCResult
 gallager_ldpc

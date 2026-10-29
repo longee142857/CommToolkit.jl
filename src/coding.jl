@@ -6,6 +6,7 @@ export turbo_interleaver, turbo_encode, turbo_decode
 export GF2m, gf_add, gf_mul, gf_div, gf_inv, gf_pow
 export hamming74_encode, hamming74_decode
 export bch157_encode, bch157_decode
+export RSCode, rs_code, rs_shorten, rs_encode, rs_decode
 export LDPCCode, LDPCResult
 export gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H
 export ldpc_encode, ldpc_decode, ldpc_decode_details, ldpc_syndrome
