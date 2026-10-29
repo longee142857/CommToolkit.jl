@@ -4,9 +4,9 @@
 
 编码和交织之后，比特错误和帧错误不是独立伯努利试验。区间仍按独立计数使用，和现有测试一样。
 
-`demos/` 不在 `Pkg.test` 里。`demos/ber_16qam.jl` 画的是高信噪比近似，不是 Cho–Yoon 精确式。`demos/ber_comparison.jl` 只画仿真点，没有闭式曲线。`demos/validation_figure.jl` 的四条曲线是 v0.6 之前的图：AWGN 下的 BPSK、QPSK、16-QAM，以及平坦瑞利下的 BPSK。`demos/link_puncture_bicm.jl` 打印删余表的固定行、自适应、Chase 与 `harq=:ir` 的对照，以及 8-PSK 的 1 次与 4 次迭代。
+`demos/` 不在 `Pkg.test` 里。`demos/ber_16qam.jl` 画的是高信噪比近似，不是 Cho–Yoon 精确式。`demos/ber_comparison.jl` 只画仿真点，没有闭式曲线。`demos/validation_figure.jl` 的四条曲线是 v0.6 之前的图：AWGN 下的 BPSK、QPSK、16-QAM，以及平坦瑞利下的 BPSK。`demos/link_puncture_bicm.jl` 打印删余表的固定行、自适应、Chase 与 `harq=:ir` 的对照，以及 8-PSK 的 1 次与 4 次迭代。`demos/cdl_ofdm.jl` 打印 CDL 剖面与量化抽头、静态 drop 的 OFDM 烟测（只有仿真点），以及平坦退化的瑞利对照。
 
-统计规则和公式出处也写在 `test/reference.jl` 文件头。下表把每个测试文件都点到：`test/algebraic.jl`、`test/bicm.jl`、`test/contract.jl`、`test/evm.jl`、`test/exit.jl`、`test/interleave.jl`、`test/jakes_nakagami.jl`、`test/kronecker_mimo.jl`、`test/ldpc.jl`、`test/link.jl`、`test/lms_dfe.jl`、`test/psk_rice_mrc.jl`、`test/pulse_fir.jl`、`test/reference.jl`、`test/runtests.jl`、`test/scrambling.jl`、`test/sova.jl`、`test/sync.jl`、`test/turbo.jl`、`test/waterfill.jl`。
+统计规则和公式出处也写在 `test/reference.jl` 文件头。下表把每个测试文件都点到：`test/algebraic.jl`、`test/bicm.jl`、`test/cdl.jl`、`test/contract.jl`、`test/evm.jl`、`test/exit.jl`、`test/interleave.jl`、`test/jakes_nakagami.jl`、`test/kronecker_mimo.jl`、`test/ldpc.jl`、`test/link.jl`、`test/lms_dfe.jl`、`test/psk_rice_mrc.jl`、`test/pulse_fir.jl`、`test/reference.jl`、`test/runtests.jl`、`test/scrambling.jl`、`test/sova.jl`、`test/sync.jl`、`test/turbo.jl`、`test/waterfill.jl`。
 
 | 模块 | 量 | 闭式或参照 | 测试 | 演示 |
 |---|---|---|---|---|
@@ -21,6 +21,7 @@
 | Channel | L 支路 i.i.d. 瑞利、理想 CSI、相干 BPSK 的 MRC | Proakis 与 Salehi §13.4 的求和式，`ber_bpsk_mrc_rayleigh`。``\bar\gamma_b`` 是每条支路的平均 ``E_b/N_0``。`L = 1` 退回单支路瑞利 | `test/psk_rice_mrc.jl` | `demos/ber_psk_rice_mrc.jl`（`L = 2`） |
 | Channel | Clarke/Jakes 滞后相关 | 对照 ``J_0(2\pi f_d \tau)``。有限 DFT 格子和有限样本都留有误差。理想 CSI 相干 BPSK 的平均仍用瑞利闭式，因为边际是 ``\mathcal{CN}(0,1)`` | `test/jakes_nakagami.jl` | `demos/ber_jakes_nakagami.jl` |
 | Channel | Nakagami-m、理想 CSI、相干 BPSK | Craig 形式对 Gamma 矩生成函数积分，`ber_bpsk_nakagami`。`m = 1` 退回瑞利。正整数 `m` 等于 `m` 支路瑞利 MRC，每条支路的平均是 ``\bar\gamma_b/m``。`m \to \infty` 退回 AWGN | `test/jakes_nakagami.jl` | `demos/ber_jakes_nakagami.jl` |
+| Channel | 教学 CDL（TR 38.901 CDL-A/B/C 延迟–功率剖面） | 表 7.7.1-1/2/3 的归一化延迟与功率两列逐值冻结；归一化延迟的功率加权 RMS 延迟扩展为 1（§7.7.3），式 (7.7-1) 线性缩放。样本量化按功率相加合并，抽头功率归一。`fd = 0` 的每抽头抽取与 `jakes_fading(1, 0, Ts)` 逐值一致；`fd > 0` 的逐抽头时间平均功率对照剖面功率（单条记录，容差写明）。静态单列 drop 与 `apply_fir` / `apply_multipath` 的 `TDLChannel` 逐样本一致。唯一闭式：全部簇并到 0 号抽头时合成系数是 ``\mathcal{CN}(0,1)``，理想 CSI 相干 BPSK 回到 `ber_bpsk_rayleigh`（逐符号独立抽取用 Clopper–Pearson，相关记录用条件平均对照，与 Jakes 边际测试同一写法）。色散情形没有黄金 BER 曲线；OFDM 对照是循环前缀内的无噪声完美恢复。参照 3GPP TR 38.901 V16.1.0 §7.7.1 与 §7.7.3；Clarke，BSTJ，1968（逐抽头谱） | `test/cdl.jl` | `demos/cdl_ofdm.jl` |
 | Coding | (7, 5) 距离谱 | Lin 与 Costello，《Error Control Coding》第 2 版，(2,1,2) 转移函数系数。`distance_spectrum` | `test/runtests.jl` | 无 |
 | Coding | 硬判决 Viterbi 的信息比特误码 | 截断联合界。Proakis 与 Salehi §8.2；Lin 与 Costello §12.3。区间上界不超过该界，并低于未编码 BPSK | `test/runtests.jl` | `demos/ber_conv_coding.jl` 只画仿真曲线，不画联合界 |
 | Coding | 软输入 Viterbi 与 log-BCJR | 同一 ``E_b/N_0`` 下，Clopper–Pearson 区间低于硬判决，也低于未编码 BPSK。点估计低于软判决联合界 ``\sum c_d Q(\sqrt{2 d R E_b/N_0})``（``R = 1/2``），并大于该界的十分之一。Proakis 与 Salehi §8.2。BCJR：Bahl、Cocke、Jelinek 与 Raviv，IEEE Trans. Inf. Theory 20(2):284–287，1974 | `test/runtests.jl` | 无 |
@@ -57,7 +58,7 @@
 
 ## 闭式摘录
 
-下列句子里，Kronecker 那一条是 0.9.3 加上的，定义在 `kronecker_channel` 的文档字符串，不在 `test/reference.jl`。1.0.0 不新增闭式，也不改这张表。1.1.0 只在矩阵里增加短 Reed–Solomon 一行，它没有误码闭式，本节的公式清单不变。1.1.1 增加一条数值积分对照（不是闭式）：BIAWGN 一致 LLR 的互信息 ``I = 1 - \mathbb{E}[\log_2(1+e^{-L})]``，``L = 2y/\sigma^2``，``y \sim \mathcal{N}(1, \sigma^2)``，Simpson 积分在 `test/reference.jl` 的 `biawgn_llr_mi`，它是 ``J(2/\sigma)`` 的精确值（Hagenauer，Proc. 12th EUSIPCO，2004）。1.1.2 增加 `harq=:ir` 教学增量冗余一行：没有闭式 BLER，是种子 `0x0c0de1162` 下 IR 对 Chase 的两个蒙特卡洛对照点，公式清单不变。其余与 v0.9.0 的 README 验证段相同，公式仍以 `test/reference.jl` 为准。
+下列句子里，Kronecker 那一条是 0.9.3 加上的，定义在 `kronecker_channel` 的文档字符串，不在 `test/reference.jl`。1.0.0 不新增闭式，也不改这张表。1.1.0 只在矩阵里增加短 Reed–Solomon 一行，它没有误码闭式，本节的公式清单不变。1.1.1 增加一条数值积分对照（不是闭式）：BIAWGN 一致 LLR 的互信息 ``I = 1 - \mathbb{E}[\log_2(1+e^{-L})]``，``L = 2y/\sigma^2``，``y \sim \mathcal{N}(1, \sigma^2)``，Simpson 积分在 `test/reference.jl` 的 `biawgn_llr_mi`，它是 ``J(2/\sigma)`` 的精确值（Hagenauer，Proc. 12th EUSIPCO，2004）。1.1.2 增加 `harq=:ir` 教学增量冗余一行：没有闭式 BLER，是种子 `0x0c0de1162` 下 IR 对 Chase 的两个蒙特卡洛对照点，公式清单不变。1.1.3 增加教学 CDL 一行：不新增公式，唯一闭式锚点是完全合并的平坦退化回到 `ber_bpsk_rayleigh`，色散情形只有功率与形状统计和无噪声 OFDM 烟测。其余与 v0.9.0 的 README 验证段相同，公式仍以 `test/reference.jl` 为准。
 
 - AWGN 下 BPSK 与 Gray QPSK：``Q(\sqrt{2 E_b/N_0})``。Proakis 与 Salehi，第 5 版，§5.2。
 - 方形 Gray M-QAM 的精确平均误比特率：Cho 与 Yoon，2002，式 (16)。图中 16-QAM 用的是这个精确式，不是高信噪比近似。

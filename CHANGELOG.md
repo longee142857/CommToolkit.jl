@@ -1,5 +1,16 @@
 # 变更记录
 
+## 1.1.3
+
+教学簇延迟线（Clustered Delay Line，CDL）：TR 38.901 CDL-A/B/C 延迟–功率剖面上的可复现多径，供 OFDM 与链路 demo 使用。坐在 1.1.2（短 RS、EXIT、IR-HARQ）之上，是 1.x 内的增加：稳定导出清单增加 6 个名字，已有名字的位置参数、返回值与语义都不变，v1.0.0 的全部默认行为不变。这是教学 CDL，不是完整 3GPP 信道实现，也不声称 NR 合规：没有角度、没有每簇 20 射线、没有天线几何、没有空间一致性、没有 MIMO 全矩阵。有意留在范围之外的仍是完整几何 TR 38.901 CDL、路线 C 的多用户 xApp、NR LDPC。
+
+- 剖面：`CDLProfile(delays, powers_db; name=:custom)` 与 `cdl_profile(:A | :B | :C)`。表值取自 3GPP TR 38.901 V16.1.0 表 7.7.1-1/2/3 的归一化延迟与功率两列（23、23、24 簇，NLOS）；归一化延迟的功率加权 RMS 延迟扩展为 1（§7.7.3），测试逐值冻结。LOS 的 CDL-D/E 拒绝。离开角 / 到达角、簇角扩展、XPR 不进剖面。
+- 抽头：`cdl_taps(profile, n, Ts; delay_spread=100e-9, fd=0.0, n_taps=nothing)` 返回 `CDLTaps(delays, gains, powers)`。延迟按式 (7.7-1) 线性缩放（`delay_spread` 单位秒，默认 100 ns 是表 7.7.3-1 的 nominal 一档；`delay_spread = 1.0` 时剖面延迟直接读成秒），按 `round` 量化到样本，落进同一样本的簇按功率相加合并。抽头功率归一到 ``\sum p_i = 1``。每抽头一条独立的 `jakes_fading(n, fd, Ts)`：`fd = 0` 是单次静态 drop（一列增益，每抽头一对 `randn`）；`fd > 0` 是逐抽头 Clarke 谱（`fd * Ts < 1/2`），不是 38.901 的射线求和多普勒。`n_taps` 抽稀保留最强抽头并重新归一，是教学便利，不是标准内容。同一 `Random.seed!` 复现同一组抽头；随机流顺序写明在文档字符串里。
+- 卷积与信道：`apply_cdl(signal, taps)` 是按输入样本索引增益的时变线性卷积，输出全长 ``n + d_{\max}``；静态单列 drop 与 `apply_fir`、`TDLChannel` + `apply_multipath` 逐样本一致。`cdl_channel(symbols, snr_db, bits_per_symbol; Ts, profile, ...)` 在卷积后按 `awgn` 的 ``E_b/N_0`` 约定加噪（含卷积尾部，与 `fir_channel` 相同），`Ts` 是必填关键字；功率归一使 `snr_db` 仍是平均 ``E_b/N_0``。
+- OFDM 对接：静态 drop 用 `TDLChannel(taps.gains[:, 1], taps.delays)` 直接进 `apply_channel` / `ofdm_rx_known`。时变增益没有对应 `TDLChannel` 接口。
+- 诚实的对照（`test/cdl.jl`）：表值与单位 RMS 延迟扩展冻结；量化合并向量冻结；`fd = 0` 抽取与 `jakes_fading(1, 0, Ts)` 逐值一致；`fd > 0` 单条记录的时间平均功率对照剖面功率（容差写明）；静态 drop 与 FIR / TDL 逐样本一致；内部样本输出功率 ``\mathbb{E}|y|^2 = 1``；唯一闭式锚点是全部簇并到 0 号抽头的平坦退化——合成系数 ``\mathcal{CN}(0,1)``，理想 CSI 相干 BPSK 回到 `ber_bpsk_rayleigh`（种子 `0x0c0de1162`，逐符号独立抽取用 Clopper–Pearson ``\alpha = 10^{-4}``，相关记录用条件平均对照，与 Jakes 边际测试同一写法）。色散情形没有黄金 BER 曲线；OFDM 对照是循环前缀内的无噪声完美恢复烟测。演示 `demos/cdl_ofdm.jl` 打印剖面、量化抽头、静态 drop 的 OFDM 烟测和平坦退化对照，不加载 Plots。
+- 文档与契约：`docs/src/api.md` 的 Channel 一节增加 6 个名字，`Channel` 源文件行注明包含 `src/cdl.jl`；`docs/src/index.md` 的 `@docs`、边界、已知限制、验证矩阵与 README 同步；`test/runtests.jl` 与 `test/contract.jl` 的版本断言升到 `v"1.1.3"`。没有触碰 `fpga/ax7020`，也没有触碰 1.1.0 的 RS 面、1.1.1 的 EXIT、1.1.2 的 `harq` 关键字。
+
 ## 1.1.2
 
 `simulate_link` 增加关键字 `harq`：`:chase`（默认，与 1.0.0 逐比特一致）或 `:ir`（教学增量冗余）。坐在 1.1.1（短 RS、EXIT）之上，是 1.x 内的增加：稳定导出清单不增删名字，已有位置参数和返回值不变，v1.0.0 的全部默认行为不变。不是 NR 速率匹配，不是 RV0–RV3，也不是 NR HARQ 实体。1.1.0 与 1.1.1 已被并行的短 RS 与 EXIT 两刀占用，这一刀记为补丁 1.1.2，不升主版本。
