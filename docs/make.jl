@@ -32,7 +32,8 @@ makedocs(;
         inventory_version = string(pkgversion(CommToolkit)),
         # One API page. 0.8.5 was under the previous 450 KiB cap; BICM-ID
         # docstrings share that same page. 1.2.0 adds the XApp docstrings:
-        # 415 KiB rendered, still under the hard threshold.
+        # 415 KiB rendered, still under the hard threshold. 1.2.1 adds the
+        # four polar docstrings on the same Coding page.
         size_threshold = 520 * 1024,
         size_threshold_warn = 460 * 1024,
     ),
