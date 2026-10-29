@@ -10,7 +10,8 @@ export awgn, rayleigh_channel, block_rayleigh, block_rayleigh_channel,
     rice_fading, rice_channel,
     nakagami_envelope, nakagami_fading, nakagami_channel,
     mrc, mrc_channel,
-    apply_fir, fir_channel
+    apply_fir, fir_channel,
+    CDLProfile, cdl_profile, CDLTaps, cdl_taps, apply_cdl, cdl_channel
 
 @doc raw"""
     awgn(symbols, snr_db::Real; energy_per_bit::Real=1.0)
@@ -758,5 +759,7 @@ function nakagami_channel(
     rx, h = nakagami_channel(syms, snr_db, bits_per_symbol; m=m)
     return perfect_csi ? rx ./ h : rx
 end
+
+include("cdl.jl")
 
 end # module Channel
