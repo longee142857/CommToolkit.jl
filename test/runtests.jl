@@ -12,7 +12,7 @@ ENV["GKSwstype"] = get(ENV, "GKSwstype", "nul")
 @testset "Package hygiene" begin
     text = read(joinpath(pkgdir(CommToolkit), "Project.toml"), String)
     @test occursin("b0120378-1646-4a57-aae9-1dec7113c692", text)
-    @test pkgversion(CommToolkit) == v"1.0.0"
+    @test pkgversion(CommToolkit) == v"1.1.0"
     @test !occursin("a1b2c3d4-e5f6-7890-abcd-ef1234567890", text)
     deps = match(r"(?s)\[deps\](.*?)(?:\n\[|\z)", text).captures[1]
     @test !occursin("Plots", deps)
@@ -712,9 +712,11 @@ include("kronecker_mimo.jl")
 include("sync.jl")
 include("jakes_nakagami.jl")
 include("bicm.jl")
+include("exit.jl")
 
 @testset "Plots extension" begin
     @test_throws ErrorException plot_constellation(ComplexF64[1.0, -1.0], BPSK())
+    @test_throws ErrorException plot_exit_chart(EXITCurve([0.0, 1.0], [0.0, 1.0]))
     @eval using Plots
     Random.seed!(RNG_SEED)
     rx = awgn(modulate(rand(0:1, 400), QPSK()), 12.0, 2)
@@ -726,4 +728,8 @@ include("bicm.jl")
     @test eye isa Plots.Plot
     pref = plot_pulse_response(raised_cosine(0.35, 6, 4))
     @test pref isa Plots.Plot
+    demap_curve = EXITCurve(collect(0.0:0.5:1.0), [0.5, 0.6, 0.7])
+    decoder_curve = EXITCurve(collect(0.0:0.5:1.0), [0.4, 0.7, 0.9])
+    @test plot_exit_chart(demap_curve) isa Plots.Plot
+    @test plot_exit_chart(demap_curve, decoder_curve) isa Plots.Plot
 end
