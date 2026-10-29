@@ -1,6 +1,6 @@
 # CommToolkit.jl
 
-> **v1.0.0**。公开接口按 SemVer 冻结。稳定面是 [公开接口](docs/src/api.md) 里 `using CommToolkit` 带入的名字；删除、改名或改变位置参数和已有返回值的含义，升主版本。
+> **v1.1.0**。公开接口按 SemVer 冻结。稳定面是 [公开接口](docs/src/api.md) 里 `using CommToolkit` 带入的名字；删除、改名或改变位置参数和已有返回值的含义，升主版本。1.1.0 在 1.x 内增加 `simulate_link` 的 `harq=:ir`（删余卷积行上的教学增量冗余），默认 `harq=:chase` 与 1.0.0 逐比特一致。
 
 基带通信链路仿真库，用来把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
 
@@ -19,7 +19,7 @@
 - **编码**（`Coding`）：终止的 (7, 5) 卷积码，硬 / 软 Viterbi、log-BCJR、SOVA，以及到 2/3、3/4 的周期删余。短帧 Turbo（记忆 2 的 RSC）。``\mathrm{GF}(2^m)``（``m = 2,3,4``）、Hamming(7,4)、二进制 BCH(15,7)。短 LDPC：Gallager、Fan 阵列码、系统编码、泛洪 sum-product 与 min-sum。
 - **交织**（`Interleaving`）：矩形块交织，按行写入、按列读出。
 - **BICM**（`BICM`）：比特交织编码调制的教学接收机。默认 Gray。`bicm_psk8_id_labels` 是 8-PSK 集合分割。卷积块可用 `rate = 2//3` 或 `3//4`，删余在交织之前。`simulate_link(...; receiver=:bicm)` 只调用卷积行。不是 NR BICM，没有 EXIT 图。
-- **链路**（`Link`）：CRC-16、原来的五档教学 MCS，以及另一张净荷 54 比特的删余卷积表。默认接收机是软输入 Viterbi。`receiver=:bicm` 在卷积行上改用 BICM。重传重复同一删余字，不是增量冗余。``E_s = 1``，``\sigma^2 = N_0/2``。
+- **链路**（`Link`）：CRC-16、原来的五档教学 MCS，以及另一张净荷 54 比特的删余卷积表。默认接收机是软输入 Viterbi。`receiver=:bicm` 在卷积行上改用 BICM。重传默认重复同一删余字（Chase）；`harq=:ir` 是删余卷积行上的教学增量冗余，偶数次重传发补图案、按母码位软合并。不是 NR 速率匹配。``E_s = 1``，``\sigma^2 = N_0/2``。
 - **均衡**（`Equalization`）：线性块 ZF / MMSE、符号率 LMS、有限长块 DFE。
 - **OFDM**（`OFDM`）：循环前缀收发、静态抽头延迟线、已知 CSI / LS / 逐导频收缩后线性插值、van de Beek 定时与小数倍频偏。
 - **MIMO**（`MIMO`）：i.i.d. 瑞利上的 ML、ZF、MMSE、SIC，平坦 Kronecker 空间相关（`kronecker_channel`，Loyka 指数相关 `exponential_correlation`），ZF 与 SVD 预编码，总功率注水，Alamouti ``2\times1`` 与 ``2\times2``。不是 Weichselberger，也不是 TR 38.901 的 CDL / UMi。
@@ -99,7 +99,7 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 
 ## 已知限制
 
-完整条目在 [docs/src/limitations.md](docs/src/limitations.md)。1.0.0 不放宽这些限制。0.9.2 改的是删余 MCS、卷积 BICM 接收机和同一删余字的 Chase。0.9.3 增加平坦 Kronecker。这里只留检索用的几条：
+完整条目在 [docs/src/limitations.md](docs/src/limitations.md)。1.0.0 不放宽这些限制。0.9.2 改的是删余 MCS、卷积 BICM 接收机和同一删余字的 Chase。0.9.3 增加平坦 Kronecker。1.1.0 放宽一条：`harq=:ir` 教学增量冗余。这里只留检索用的几条：
 
 - 卷积母码仍是 (7, 5)。删余只有 2/3 和 3/4 两张图案。教学 MCS 可以用这三档名义码率，母码长度必须是图案周期的整数倍。联合界不覆盖删余码。不是 NR 速率匹配。
 - Turbo 是记忆 2 的短帧，不是 3GPP。BCH 只有 (15, 7)，不是 Reed–Solomon。
@@ -108,4 +108,4 @@ MIT。Copyright (c) 2026 刘恒宇 (longee142857)。见 `LICENSE`。
 - Kronecker 是一次平坦矩阵 ``R_r^{1/2} H_w R_t^{1/2}``。`mimo_channel` 仍是 i.i.d.。指数相关是 Loyka 的 Toeplitz 矩阵，不是 ``J_0``。检测器不按 ``R_t``、``R_r`` 做预白化。不是 Weichselberger，也不是 UMi。
 - OFDM 的 “MMSE” 是导频收缩后的线性插值。`ofdm_sync` 只在 ``(-1/2, 1/2)`` 个子载波间隔内无模糊。
 - Gardner、Costas、Schmidl–Cox 有写明的捕获范围，不是生产级接收机，也不是调度器。
-- 链路闭环是单链路 AWGN。原来的五档表还在；删余表是另一张，门限不能混用。Chase 重复同一删余字，不是增量冗余。没有多用户调度，也没有路线 C 的多用户 xApp。
+- 链路闭环是单链路 AWGN。原来的五档表还在；删余表是另一张，门限不能混用。Chase（默认）重复同一删余字；`harq=:ir` 是互补删余图案的教学增量冗余：静态 AWGN 上 `max_tx=2` 时 BLER 高于 Chase，`max_tx=3` 时与 Chase 分不开但信道使用更少。不是 NR 速率匹配，也不是 RV0–RV3。没有多用户调度，也没有路线 C 的多用户 xApp。

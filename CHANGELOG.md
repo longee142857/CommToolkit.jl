@@ -1,5 +1,14 @@
 # 变更记录
 
+## 1.1.0
+
+`simulate_link` 增加关键字 `harq`：`:chase`（默认，与 1.0.0 逐比特一致）或 `:ir`（教学增量冗余）。这是 1.x 内的增加：稳定导出清单不增删名字，已有位置参数和返回值不变，v1.0.0 的全部默认行为不变。不是 NR 速率匹配，不是 RV0–RV3，也不是 NR HARQ 实体。记为 1.1.0，不升主版本。
+
+- 增量冗余：`simulate_link(...; harq=:ir)`，只接 `:viterbi` 接收机与卷积行。删余行上第 1 次发送 `puncture_mask` 图案 A，第 2 次发补图案（A 删掉的母码比特），更长的循环按 A、B 交替。比特 LLR 按母码位相加（擦除位仍是 LLR 0，复用 `depuncture`），所以第 2 次之后译码器见过每个母码比特一次，等效码率从删余码率降到母码 1/2。补字比 A 字短，`:ir` 重传花的信道使用更少，`n_channel_uses` 按实际发送计数。CRC 仍决定 ACK，`max_tx` 语义不变。码率 1/2 的行没有可补的比特，`:ir` 退化为 `:chase`；`max_tx=1` 只发图案 A，与 `:chase` 一致。LDPC 行、`receiver=:bicm`、补字长度不整除每符号比特数，都在仿真开始前报 `ArgumentError`。
+- 诚实的对照（静态 AWGN，``K = 3`` 母码，种子 `0x0c0de1162`，QPSK 3/4，400 块，Clopper–Pearson ``\alpha = 10^{-4}``）：1 dB、`max_tx=3` 时 IR 与 Chase 的 CRC 失败率区间互相重叠（49/400 对 51/400），IR 少花信道使用、吞吐更高；2 dB、`max_tx=2` 时 Chase 的 NACK 点估计明显更低（96/400 对 136/400），因为 Chase 把删余字的能量翻倍，胜过把每个母码比特各看一次。这是小码在静态信道上的教科书式折中，不宣称衰落分集增益。参照 Hagenauer，IEEE Trans. Commun. 36(4):389–400，1988；Chase，IEEE Trans. Commun. 33(5):385–393，1985。
+- 测试：`test/link.jl` 增加「HARQ mode keyword and IR fallbacks」与「Incremental redundancy versus Chase」。前者锁定 `:chase` 默认回归（显式 `harq=:chase` 与省略该关键字的报告逐字段一致）、`max_tx=1` 与码率 1/2 的退化、无噪声形状、自适应策略与 `:ir` 的组合，以及关键字参数检查。后者是上面的两个对照点。
+- 文档与契约：`docs/src/api.md` 注明 1.1.0 只加关键字、不增删导出名字；`docs/src/limitations.md`、`docs/src/boundaries.md`、`docs/src/validation.md`、`docs/src/index.md` 与 README 改成与这条链路一致。`demos/link_puncture_bicm.jl` 增加 IR×3 列与 `max_tx=2` 的诚实角落。`test/runtests.jl` 与 `test/contract.jl` 的版本断言升到 `v"1.1.0"`。没有触碰 `fpga/ax7020`。
+
 ## 1.0.0
 
 公开接口按 SemVer 冻成 1.0。这一版不增加算法，不改已有函数的位置参数和返回值，也不改 `docs/src/api.md` 里已经列出的名字。`using CommToolkit` 带入的名字就是稳定面。删除、改名，或改变位置参数和已有返回值的含义，必须升主版本号，并写进本文件。1.x 可以增加名字；增加本身不升主版本。

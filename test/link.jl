@@ -1,4 +1,5 @@
-# Teaching CRC, MCS table, Chase combining, and threshold AMC.
+# Teaching CRC, MCS table, Chase combining, teaching incremental redundancy,
+# and threshold AMC.
 # Noise is the package convention σ² = N0/2 with Es = 1, so the link SNR is Es/N0.
 # Intervals are Clopper–Pearson at BER_ALPHA (reference.jl). Counts are not locked:
 # a different randn stream must still separate the intervals below.
@@ -369,6 +370,14 @@ end
     @test_throws ArgumentError simulate_link(Inf, 1; table=teaching_punctured_mcs_table(),
                                              receiver=:bicm, bicm_n_rows=5)
     @test_throws ArgumentError simulate_link(Inf, 1; receiver=:bicm, mcs=1, bicm_iterations=0)
+    # harq keyword: only :chase and :ir. :ir is Viterbi-only, convolutional
+    # rows only, and needs a complement length divisible by the bits/symbol.
+    @test_throws ArgumentError simulate_link(0.0, 1; harq=:typeii)
+    @test_throws ArgumentError simulate_link(0.0, 1; harq=:ir, receiver=:bicm, mcs=1)
+    @test_throws ArgumentError simulate_link(0.0, 1; harq=:ir)
+    @test_throws ArgumentError simulate_link(0.0, 1; harq=:ir, mcs=3)
+    odd_fill = [mcs_convolutional("odd-fill", QAM(16), 9; rate=3//4)]
+    @test_throws ArgumentError simulate_link(0.0, 1; table=odd_fill, mcs=1, harq=:ir)
 end
 
 @testset "Punctured convolutional MCS" begin
@@ -531,6 +540,115 @@ end
     @test hi_c < lo_s
     @test chase.throughput > single.throughput
     @test chase.ber < single.ber
+end
+
+@testset "HARQ mode keyword and IR fallbacks" begin
+    table = teaching_punctured_mcs_table()
+    # The harq keyword defaults to :chase. Passing it explicitly must not move
+    # any number: same code path, same noise draws, identical report fields.
+    Random.seed!(RNG_SEED)
+    implicit = simulate_link(2.0, 30; table=table, mcs=4, max_tx=3)
+    Random.seed!(RNG_SEED)
+    explicit = simulate_link(2.0, 30; table=table, mcs=4, max_tx=3, harq=:chase)
+    for field in fieldnames(LinkReport)
+        @test getfield(implicit, field) == getfield(explicit, field)
+    end
+
+    # max_tx = 1 sends only pattern A, so :ir is exactly :chase.
+    Random.seed!(RNG_SEED)
+    one_chase = simulate_link(2.0, 30; table=table, mcs=4, max_tx=1)
+    Random.seed!(RNG_SEED)
+    one_ir = simulate_link(2.0, 30; table=table, mcs=4, max_tx=1, harq=:ir)
+    for field in fieldnames(LinkReport)
+        @test getfield(one_chase, field) == getfield(one_ir, field)
+    end
+
+    # A rate-1/2 row deletes nothing, so :ir retransmissions repeat the whole
+    # word and coincide with :chase.
+    Random.seed!(RNG_SEED)
+    half_chase = simulate_link(2.0, 30; table=table, mcs=2, max_tx=3)
+    Random.seed!(RNG_SEED)
+    half_ir = simulate_link(2.0, 30; table=table, mcs=2, max_tx=3, harq=:ir)
+    for field in fieldnames(LinkReport)
+        @test getfield(half_chase, field) == getfield(half_ir, field)
+    end
+
+    # Noiseless IR on every punctured-table row: CRC passes on pattern A at the
+    # first transmission, so the report matches the one-transmission shape.
+    for (i, row) in enumerate(table)
+        Random.seed!(RNG_SEED)
+        report = simulate_link(Inf, 2; table=table, mcs=i, max_tx=3, harq=:ir)
+        _assert_link_report(report; max_tx=3)
+        @test report.bler == 0.0
+        @test report.ber == 0.0
+        @test report.n_delivered == 2
+        @test report.mean_transmissions == 1.0
+        @test report.throughput ≈ spectral_efficiency(row)
+        @test report.n_channel_uses == 2 * row.n_symbols
+        @test report.mcs_histogram[i] == 2
+    end
+
+    # Adaptive policy with IR on the all-convolutional punctured table. 3 dB
+    # selects QPSK-1/2, a rate-1/2 row, so this block exercises the fallback.
+    Random.seed!(RNG_SEED)
+    policy = ThresholdAMC(teaching_punctured_amc_thresholds())
+    adapt = simulate_link(3.0, 30; table=table, policy=policy, max_tx=2, harq=:ir)
+    _assert_link_report(adapt; max_tx=2)
+    @test adapt.mcs_histogram == [0, 30, 0, 0, 0]
+end
+
+@testset "Incremental redundancy versus Chase" begin
+    # QPSK rate 3/4 on the punctured table. IR sends pattern A ([1,1,1,0,0,1])
+    # on odd transmissions and the complement ([0,0,0,1,1,0]) on even ones, so
+    # after transmission 2 the decoder has seen every mother bit once.
+    #
+    # 1 dB, max_tx = 3, n = 400, α = 1e-4: both CRC failure counts are large
+    # and the Clopper–Pearson intervals overlap, each point estimate lying
+    # inside the other interval — IR matches Chase BLER here. The fixed-seed
+    # IR count is no larger. IR still sends fewer symbols (the complement word
+    # is half the length), so its throughput is higher.
+    table = teaching_punctured_mcs_table()
+    n = 400
+    Random.seed!(RNG_SEED)
+    chase = simulate_link(1.0, n; table=table, mcs=4, max_tx=3)
+    Random.seed!(RNG_SEED)
+    ir = simulate_link(1.0, n; table=table, mcs=4, max_tx=3, harq=:ir)
+    _assert_link_report(chase; max_tx=3)
+    _assert_link_report(ir; max_tx=3)
+    @test chase.mcs_histogram[4] == n
+    @test ir.mcs_histogram[4] == n
+    @test chase.n_channel_uses == chase.n_transmissions * table[4].n_symbols
+    @test ir.n_channel_uses < chase.n_channel_uses
+    nack_c = n - chase.n_ack
+    nack_i = n - ir.n_ack
+    @test nack_c >= 40
+    @test nack_i >= 40
+    @test nack_i <= nack_c
+    lo_c, hi_c = clopper_pearson(nack_c, n, BER_ALPHA)
+    lo_i, hi_i = clopper_pearson(nack_i, n, BER_ALPHA)
+    @test lo_c <= nack_i / n <= hi_c
+    @test lo_i <= nack_c / n <= hi_i
+    @test ir.throughput > chase.throughput
+
+    # 2 dB, max_tx = 2: the honest opposite corner. Chase repeats the punctured
+    # word and doubles the energy of every transmitted bit; IR spends the
+    # retransmission on previously deleted mother bits at single energy. On
+    # static AWGN with this K = 3 mother the Chase failure count is clearly
+    # lower (fixed-seed point estimates; the α = 1e-4 intervals overlap at this
+    # n). IR still spends fewer channel uses, so its throughput is higher.
+    Random.seed!(RNG_SEED)
+    chase2 = simulate_link(2.0, n; table=table, mcs=4, max_tx=2)
+    Random.seed!(RNG_SEED)
+    ir2 = simulate_link(2.0, n; table=table, mcs=4, max_tx=2, harq=:ir)
+    _assert_link_report(chase2; max_tx=2)
+    _assert_link_report(ir2; max_tx=2)
+    nack_c2 = n - chase2.n_ack
+    nack_i2 = n - ir2.n_ack
+    @test nack_c2 >= 40
+    @test nack_i2 >= 40
+    @test nack_i2 > nack_c2
+    @test ir2.n_channel_uses < chase2.n_channel_uses
+    @test ir2.throughput > chase2.throughput
 end
 
 @testset "BICM receiver versus one demapper pass" begin

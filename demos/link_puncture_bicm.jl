@@ -1,5 +1,6 @@
 # Teaching link: punctured convolutional MCS, Chase of one punctured word,
-# and one BICM receiver. Not an NR/LTE scheduler, not incremental redundancy.
+# opt-in teaching incremental redundancy (harq=:ir), and one BICM receiver.
+# Not an NR/LTE scheduler, not NR rate matching, not RV0–RV3.
 #
 # Es = 1, σ² = N0/2, seed 0x0c0de1162.
 # Throughput is delivered payload bits per transmitted symbol.
@@ -20,7 +21,7 @@ table = teaching_punctured_mcs_table()
 policy = ThresholdAMC(teaching_punctured_amc_thresholds())
 snrs = [0.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0]
 
-println("CommToolkit punctured MCS link (not NR, not IR-HARQ).")
+println("CommToolkit punctured MCS link (not NR, teaching IR only).")
 println("Seed ", string(SEED, base=16), ", ", N_BLOCKS,
         " blocks, receiver = Viterbi unless noted.")
 println("Payload 54 bits, mother length 144, CRC-16 and a 2-bit tail are overhead.")
@@ -33,12 +34,16 @@ println()
 println("Fixed columns follow teaching_punctured_mcs_table. adaptive uses")
 println("teaching_punctured_amc_thresholds and ideal Es/N0. Chase×3 repeats the")
 println("QPSK-3/4 word and sums bit LLRs; deleted mother bits stay at LLR 0.")
+println("IR×3 (harq=:ir) sends pattern A, then the complementary mask (the")
+println("deleted mother bits), then A again, summing LLRs per mother position.")
+println("The complement word is half the length, so IR spends fewer symbols.")
 println()
 
 header = "Es/N0  " * join([@sprintf("%8s", string(i)) for i in 1:length(table)]) *
-         "   adaptive    QPSK-3/4 Chase×3"
+         "   adaptive    QPSK-3/4 Chase×3   QPSK-3/4 IR×3"
 println(header)
-println("dB      " * " fixed throughput (bit/use)")
+println("dB      " * " fixed throughput (bit/use)" * " "^10 * "T / BLER" *
+        " "^6 * "T / BLER")
 
 for snr in snrs
     cells = String[]
@@ -51,9 +56,25 @@ for snr in snrs
     adapt = simulate_link(snr, N_BLOCKS; table=table, policy=policy, max_tx=1)
     Random.seed!(SEED)
     chase = simulate_link(snr, N_BLOCKS; table=table, mcs=4, max_tx=3)
-    @printf("%5.1f  %s   %6.3f/%4.2f   %6.3f/%4.2f\n",
+    Random.seed!(SEED)
+    ir = simulate_link(snr, N_BLOCKS; table=table, mcs=4, max_tx=3, harq=:ir)
+    @printf("%5.1f  %s   %6.3f/%4.2f   %6.3f/%4.2f        %6.3f/%4.2f\n",
             snr, join(cells), adapt.throughput, adapt.bler,
-            chase.throughput, chase.bler)
+            chase.throughput, chase.bler, ir.throughput, ir.bler)
+end
+
+println()
+println("Honest corner: at max_tx = 2 the Chase BLER is lower than the IR BLER")
+println("(Chase doubles the energy of the punctured word; IR spends the second")
+println("transmission on single-energy mother bits). At max_tx = 3 the BLERs")
+println("match while IR uses fewer symbols. Static AWGN, K = 3 mother code.")
+for snr in (1.0, 2.0)
+    Random.seed!(SEED)
+    c2 = simulate_link(snr, N_BLOCKS; table=table, mcs=4, max_tx=2)
+    Random.seed!(SEED)
+    i2 = simulate_link(snr, N_BLOCKS; table=table, mcs=4, max_tx=2, harq=:ir)
+    @printf("  max_tx=2  %4.1f dB   Chase T %.3f BLER %.3f   IR T %.3f BLER %.3f\n",
+            snr, c2.throughput, c2.bler, i2.throughput, i2.bler)
 end
 
 println()
