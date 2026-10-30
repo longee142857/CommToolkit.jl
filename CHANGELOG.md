@@ -1,5 +1,15 @@
 # 变更记录
 
+## 1.2.2
+
+教学 SOVA 的编码比特外信息。坐在 1.2.1（教学 Arikan polar SC）之上，是 1.x 内的增加：稳定导出清单不增删名字，`sova_decode` 增加关键字 `return_coded`（默认 `false`）。省略该关键字时返回值与 1.0–1.2.1 逐比特相同，已有名字的位置参数、返回值和默认都不改。`bcjr_decode`、`viterbi_decode`、`exit_decoder_transfer`、`simulate_link` 的行为没有改。`bicm_decode(...; decoder=:sova)` 成功调用仍是一次解调、仍不请求 `return_coded`；`iterations ≠ 1` 时依旧拒绝，只是报错文案改成「这条路径不迭代」。这是教学软输出 Viterbi，不是 MAP，不是 BCJR 的等价物，不是 Turbo 整机，也不是 NR。有意留在范围之外的仍是完整几何 TR 38.901 CDL、NR LDPC、NR polar、真 O-RAN。
+
+- 接口：`sova_decode(llr; apriori=nothing, return_coded=false)`。`return_coded=false` 仍返回信息比特外信息 ``L_e(u)=(1-2\hat u)\rho-L_a``，正值偏向比特 0，尾比特去掉。`return_coded=true` 返回 `(info, coded)`：`info` 是同一个向量，`coded` 与信道 LLR 等长（含两对尾比特），``L_e(c)=(1-2\hat c)\rho^{(c)}-L(c)``。``\rho`` 是 Hagenauer–Hoeher 的竞争路径度量差（幸存路径上、在该比特处分叉的最小 ``\Delta``），分支度量是与 `bcjr_decode` 同一个 ``-\log\gamma``。不是路径求和，幅度不要求等于 BCJR，而且常常偏大。
+- 平局与截断：度量相等时幸存路径取输入比特更小者，仍相等则取前一状态编号更小者；另一条当作 ``\Delta=0`` 的竞争路径。分叉比特的 ``\rho`` 变成 0，外信息把先验（编码比特则是信道 LLR）抵消掉，``L .< 0`` 把 0 读成比特 0。某比特沿幸存路径从未与竞争路径分叉时，``\rho`` 用 ``\sum|L|+\sum|L_a|`` 截成有限上界，不返回 ``\pm\infty``。整块回溯，时间和存储随块长平方增长。
+- 诚实的边界：无噪声、等幅度信道上，信息比特 ``\rho`` 等于自由距 5 乘上 ``|L|``，编码比特外信息再减去信道 LLR，符号与码字一致。高信噪比下信息比特硬判决与硬 / 软 Viterbi、与 `bcjr_decode` 一致。同点可以更差：种子 `0x0c0de1162`、``E_s=1`` 的编码 BPSK、``E_b/N_0`` 按 `energy_per_bit=2`（名义码率 1/2）。0 dB、48 帧 × 64 信息比特上，SOVA 的信息比特错误数高于 BCJR（Julia 1.10.12 上 294 对 273，1.13.3 上 306 对 277），软互信息更低（过度自信的度量差）；两侧 Clopper–Pearson 区间（``\alpha=10^{-4}``）仍然重叠，不宣称显著分离。2 dB、40 帧 × 64 比特上两侧区间上界都低于未编码 BPSK，点估计的名次不作判据（这一帧数上 SOVA 略少几个错误）。6 dB、同样 40 × 64 上两侧信息比特错误为 0，且与 `viterbi_decode` 的硬判决一致。编码比特外信息的符号不等于幸存路径标签：``\rho<|L(c)|`` 时外信息可以指向另一边，所以不能把 ``L_e(c)`` 单独拿来做硬判决。
+- 不接入：`bicm_decode(...; decoder=:sova)` 仍是一次解调，不请求 `return_coded`，也不把这条近似外信息送回解调器。`exit_decoder_transfer` 仍只测 `bcjr_decode` 与短 LDPC，不接 `:sova`。SOVA 与 Turbo 仍不进 MCS 表。不是 Turbo 迭代，不是 NR 信道码。
+- 文档与契约：`docs/src/api.md` 写明 1.2.2 只加关键字、不增删导出名字；`docs/src/index.md` 的 `sova_decode` 文档字符串随 `@docs` 更新；验证矩阵、边界、已知限制（含 EXIT 一条对编码比特外信息的交叉引用）与 README 同步，「教学 SOVA，非 MAP」写进边界与 README。演示 `demos/sova_soft.jl` 打印无噪声往返、截断、平局，以及 0 / 2 / 6 dB 上对 `bcjr_decode` 的 BER 与互信息，不加载 Plots。`test/runtests.jl` 与 `test/contract.jl` 的版本断言升到 `v"1.2.2"`。没有触碰 `fpga/ax7020`，也没有改 1.2.1 的极化码。
+
 ## 1.2.1
 
 教学 Arikan 极化码：短帧构造、系统/非系统编码与串行抵消（SC）译码。坐在 1.2.0（短 RS、EXIT、IR-HARQ、教学 CDL、教学迷你 xApp）之上，是 1.x 内的增加：稳定导出清单增加 4 个名字（`PolarCode`、`polar_code`、`polar_encode`、`polar_sc_decode`），已有名字的位置参数、返回值与语义都不变，`simulate_link`、xApp、CDL、EXIT、RS 一个字符都没有改，v1.0.0 的全部默认行为不变。这是教学 Arikan polar SC，不是 3GPP NR polar：没有 CRC 级联（也就没有 CRC-aided 译码），没有 CA-SCL 或任何列表译码，没有速率匹配（``N = 2^n`` 原样发送，无删余 / 缩短 / 重复），没有 PW 或 QPP 交织，没有 3GPP 母码，也没有 38.212 的 NR 可靠度序列。有意留在范围之外的仍是完整几何 TR 38.901 CDL（角度、射线、天线几何、空间一致性、MIMO 全矩阵）、NR LDPC、NR polar、真 O-RAN。

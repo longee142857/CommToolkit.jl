@@ -1,6 +1,6 @@
 # CommToolkit.jl API
 
-API reference for the exported interface of version 1.2.1. This page is not a tutorial. Those exported names are the stable surface; breaking changes require a major version bump. Versions 1.x are additive over 1.0.0: 1.1.0 adds short Reed–Solomon, 1.1.1 adds the `EXIT` submodule, 1.1.2 adds the opt-in `harq=:ir` keyword to `simulate_link`, 1.1.3 adds the teaching clustered delay line (CDL) family in `Channel`, 1.2.0 adds the `XApp` submodule, a teaching multi-user KPI→action mini xApp, and 1.2.1 adds a teaching Arikan polar code with successive-cancellation decoding in `Coding`; none changes an existing signature.
+API reference for the exported interface of version 1.2.2. This page is not a tutorial. Those exported names are the stable surface; breaking changes require a major version bump. Versions 1.x are additive over 1.0.0: 1.1.0 adds short Reed–Solomon, 1.1.1 adds the `EXIT` submodule, 1.1.2 adds the opt-in `harq=:ir` keyword to `simulate_link`, 1.1.3 adds the teaching clustered delay line (CDL) family in `Channel`, 1.2.0 adds the `XApp` submodule, a teaching multi-user KPI→action mini xApp, 1.2.1 adds a teaching Arikan polar code with successive-cancellation decoding in `Coding`, and 1.2.2 adds the opt-in `return_coded=false` keyword to `sova_decode` (teaching coded-bit extrinsic LLRs from a competing-path gap, not MAP); none changes an existing signature or an existing default.
 
 The stability surface, the validation matrix, and the scope page are written in Chinese, matching the README: [边界](boundaries.md), [公开接口](api.md), [验证矩阵](validation.md), [已知限制](limitations.md).
 
@@ -62,7 +62,7 @@ evm
 
 ## Coding
 
-SOVA, the short turbo code, and the algebraic decoders are teaching implementations. They are not a 3GPP turbo code, not NR LDPC, and not a general BCH library; the Reed–Solomon codes of `rs_code` are the short narrow-sense primitive ones, not CCSDS long codes. `turbo_decode` is not part of the MCS / HARQ loop. The polar family added in 1.2.1 is a teaching Arikan polar code with SC decoding — not an NR polar code: no CRC, no list decoding, no rate matching, and the Bhattacharyya information set is not the NR reliability sequence.
+SOVA, the short turbo code, and the algebraic decoders are teaching implementations. They are not a 3GPP turbo code, not NR LDPC, and not a general BCH library; the Reed–Solomon codes of `rs_code` are the short narrow-sense primitive ones, not CCSDS long codes. `turbo_decode` is not part of the MCS / HARQ loop. SOVA is not MAP: `sova_decode` approximates an a-posteriori L-value by a competing-path metric gap, and at the same SNR it can be worse than `bcjr_decode`. The 1.2.2 keyword `return_coded=true` adds coded-bit extrinsic LLRs from that same gap; the default `return_coded=false` is the information-bit vector from 1.2.1. The polar family added in 1.2.1 is a teaching Arikan polar code with SC decoding — not an NR polar code: no CRC, no list decoding, no rate matching, and the Bhattacharyya information set is not the NR reliability sequence.
 
 ```@docs
 conv_encode

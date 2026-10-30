@@ -5,7 +5,7 @@ Teaching bit-interleaved coded modulation with iterative demapping.
 
 Gray [`demodulate_soft`](@ref) is the equal-prior demapper. This module adds an optional rectangular bit interleaver and, for a convolutional log-MAP decoder or a short LDPC decoder, feeds coded-bit extrinsic LLRs back into the demapper. A convolutional block may be punctured to nominal rate 2/3 or 3/4 after encoding and before the interleaver; deleted mother bits re-enter the decoder as LLR 0. It is not 5G NR BICM: no NR rate matching, no NR LDPC base graph, no layer mapping, no scrambler, and no EXIT chart. [`CommToolkit.Link.simulate_link`](@ref) can call this receiver. This module does not own the MCS table.
 
-`:sova` and `:turbo` run one demapper pass and then the existing information-bit decoder. Those two public decoders do not return coded-bit extrinsic LLRs, so they are not iterated with the demapper.
+`:sova` and `:turbo` run one demapper pass and then the information-bit decoder. `turbo_decode` returns information-bit LLRs only. As of 1.2.2, [`sova_decode`](@ref) can also return a teaching coded-bit extrinsic (`return_coded=true`): a Hagenauer–Hoeher path-metric gap with the channel LLR removed, not a BCJR marginal. This loop does not request that vector and does not feed it back, so neither decoder is iterated with the demapper.
 """
 module BICM
 
@@ -618,8 +618,8 @@ function _check_iterations(iterations::Integer, decoder::Symbol)
     ))
     if (decoder === :sova || decoder === :turbo) && it != 1
         throw(ArgumentError(
-            "decoder=$(repr(decoder)) returns information-bit LLRs only; " *
-            "coded-bit extrinsic feedback is not available, so iterations must be 1",
+            "decoder=$(repr(decoder)) is not iterated here; " *
+            "coded-bit extrinsic feedback is not used, so iterations must be 1",
         ))
     end
     return it
@@ -689,7 +689,7 @@ Iterative demapping and decoding of one block from [`bicm_map`](@ref).
 - `decoder`:
   - `:bcjr` — coded-bit log-MAP on the terminated `(7, 5)` trellis. The branch metric and the termination match [`CommToolkit.Coding.bcjr_decode`](@ref). Information-bit LLRs at `iterations == 1`, `rate == 1//2`, and a zero information-bit prior match `bcjr_decode` on the deinterleaved demapper output. Coded-bit extrinsic LLRs, clipped and interleaved, are the next demapper prior.
   - `:ldpc` — [`ldpc_decode_details`](@ref) with `early_stop=false` and `max_iter=ldpc_iterations`. Extrinsic feedback is `posterior - L_channel`, where `L_channel` is the demapper extrinsic and not the previous prior. `algorithm` is forwarded. `rate` must be `1//2`.
-  - `:sova` — one pass: deinterleaved, depunctured demapper LLRs go to [`sova_decode`](@ref). `iterations` must be 1.
+  - `:sova` — one pass: deinterleaved, depunctured demapper LLRs go to [`sova_decode`](@ref) (information-bit return; `return_coded` stays `false`). `iterations` must be 1. The teaching coded-bit gap from `sova_decode(...; return_coded=true)` is not the log-MAP extrinsic this loop would feed back, and this function does not request it.
   - `:turbo` — one pass: deinterleaved demapper LLRs go to [`turbo_decode`](@ref) with `perm` and `turbo_iterations`. `iterations` must be 1 and `rate` must be `1//2`.
 - `iterations`: demapper–decoder passes, from 1 to 32. The default 4 is a teaching choice. One pass is BICM without feedback.
 - `llr_clip`: positive finite cap on the magnitude of coded-bit extrinsic LLRs before they re-enter the demapper. The default 50 keeps the exact demapper's exponentials in a comfortable range. Information-bit LLRs returned in the result are not clipped.
@@ -699,7 +699,7 @@ The demapper writes an extrinsic LLR for every modulated bit. [`block_deinterlea
 
 Hard decisions are `llr .< 0`. This does not approach coded-modulation capacity, and Gray labelling is not expected to move much between pass 1 and pass 4. The set-partitioning 8-PSK labels are the map on which a short AWGN test separates those two passes.
 
-Not implemented: EXIT charts, a SOVA or turbo coded-bit SISO, puncturing of LDPC or turbo blocks, differential BICM, and an MCS table inside this module. The link loop that calls this function is [`CommToolkit.Link.simulate_link`](@ref).
+Not implemented: EXIT charts inside this loop, iteration of the teaching SOVA coded-bit gap, a turbo coded-bit SISO, puncturing of LDPC or turbo blocks, differential BICM, and an MCS table inside this module. The link loop that calls this function is [`CommToolkit.Link.simulate_link`](@ref).
 """
 function bicm_decode(
     symbols::AbstractVector{<:Number},
