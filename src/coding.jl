@@ -377,31 +377,49 @@ function _normalise_log!(v::AbstractVector{Float64})
 end
 
 @doc raw"""
-    sova_decode(llr::AbstractVector{<:AbstractFloat}; apriori=nothing) -> Vector{Float64}
+    sova_decode(llr::AbstractVector{<:AbstractFloat}; apriori=nothing, return_coded=false)
 
-Soft-output Viterbi (SOVA) decoding of a tail-terminated `(7, 5)` block. Returns extrinsic LLRs of the information bits.
+Teaching soft-output Viterbi (SOVA) on a tail-terminated `(7, 5)` block. Returns extrinsic LLRs of the information bits, and, if asked, of the coded bits. This is a competing-path approximation of an a-posteriori L-value. It is not the BCJR, not MAP, and not a turbo decoder.
 
 # Arguments
 - `llr`: finite channel LLRs of the coded bits from [`conv_encode`](@ref), same convention as [`bcjr_decode`](@ref). Even length, at least the two tail pairs. A `0` is an erasure, including a punctured bit restored by [`depuncture`](@ref).
 - `apriori`: optional finite a-priori LLRs of the information bits, ``L_a(u)=\log P(u=0)/P(u=1)``, length ``\texttt{length(llr)}/2 - 2``. `nothing` means ``L_a = 0``.
+- `return_coded`: `false` by default. The default returns the same information-bit vector as in 1.0–1.2.1. `true` also returns coded-bit extrinsic LLRs. Callers that omit the keyword are unchanged.
 
 # Returns
-Extrinsic information-bit LLRs, tail removed,
+With `return_coded=false`, extrinsic information-bit LLRs, tail removed,
 
 ```math
 L_e(u_k)=(1-2\hat{u}_k)\,\rho_k-L_a(u_k).
 ```
 
-``\hat{u}`` is the maximum-likelihood information sequence on the terminated trellis. ``\rho_k\ge 0`` is the Hagenauer–Hoeher reliability: the minimum metric gap ``\Delta`` between the survivor and the runner-up at merges along that path where the two paths disagree in bit ``k``. The branch metric is ``-\log\gamma`` with the same ``\log\gamma`` as [`bcjr_decode`](@ref), so a positive scale matches the BCJR LLR unit. A positive ``L_e`` favours bit 0. Hard decisions are ``L_e .< 0`` when ``L_a = 0``.
+With `return_coded=true`, the pair `(info, coded)`. `info` is that same vector. `coded` has one entry per channel LLR, including the two tail pairs,
 
-The two tail inputs are fixed at 0 and the survivor is the best path that ends in state 0, the same boundary condition as [`bcjr_decode`](@ref). [`viterbi_decode`](@ref) does not force that boundary. On a terminated word and a decisive channel the three hard decisions agree.
+```math
+L_e(c_j)=(1-2\hat{c}_j)\,\rho^{(c)}_j-L(c_j).
+```
+
+``\hat{u}`` is the maximum-likelihood information sequence on the terminated trellis, and ``\hat{c}`` is the coded labelling of that same path. ``\rho_k\ge 0`` and ``\rho^{(c)}_j\ge 0`` are Hagenauer–Hoeher reliabilities: the minimum metric gap ``\Delta`` between the survivor and the runner-up at merges along that path, taken only where the two paths disagree in the bit. The branch metric is ``-\log\gamma`` with the same ``\log\gamma`` as [`bcjr_decode`](@ref), so a positive scale matches the BCJR LLR unit. A positive value favours bit 0.
+
+Information-bit hard decisions are ``L_e(u) .< 0`` when ``L_a = 0`` and every competitor that flips bit ``k`` has a strictly worse metric. Coded-bit hard decisions are the survivor labels ``\hat{c}``. Those labels agree with ``(L_e(c)+L(c)) .< 0`` whenever ``\rho^{(c)}>0``. The extrinsic ``L_e(c)`` itself can point the other way when ``\rho^{(c)}<|L(c)|``: the gap is not a marginal, and subtracting the channel LLR is only the usual extrinsic split.
+
+The two tail inputs are fixed at 0 and the survivor is the best path that ends in state 0, the same boundary condition as [`bcjr_decode`](@ref). [`viterbi_decode`](@ref) does not force that boundary. On a terminated word and a decisive channel the three information-bit hard decisions agree.
 
 # Approximation
-SOVA is not the BCJR. ``\rho_k`` is a competing-path gap, not a sum over paths, and it is often over-confident relative to the exact a-posteriori LLR (Hagenauer and Hoeher, Proc. IEEE GLOBECOM, 1989, pp. 1680–1686). Signs agree with [`bcjr_decode`](@ref) when the channel is noiseless or at high SNR and the ML and MAP bits coincide. Magnitudes are not required to match. If no competing path along the survivor ever disagrees in bit ``k``, ``\rho_k`` is replaced by ``\sum |L|+\sum |L_a|``, which is an upper bound on a path-metric gap in these units. The update window is the whole block, so time and memory grow as the square of the block length. This is a short-block decoder, not a sliding-window chip.
+SOVA is not the BCJR and not MAP. ``\rho`` is one competing-path gap, not a sum over paths, and it is often over-confident relative to the exact a-posteriori LLR (Hagenauer and Hoeher, Proc. IEEE GLOBECOM, 1989, pp. 1680–1686). Information-bit signs agree with [`bcjr_decode`](@ref) when the channel is noiseless or at high SNR and the ML and MAP bits coincide. Magnitudes are not required to match. At the same ``E_b/N_0`` the information-bit error rate, or the soft mutual information of these L-values, can be worse than `bcjr_decode`. The coded-bit vector uses the same gap and then removes the channel LLR. It is not the coded-bit log-MAP marginal inside `bicm_decode`, and neither the `:sova` BICM path nor [`exit_decoder_transfer`](@ref CommToolkit.EXIT.exit_decoder_transfer) consumes it.
 
-The code is not systematic, so no channel LLR is subtracted beyond the ``L_a`` term. This function does not iterate with an outer code.
+If no competing path along the survivor ever disagrees in a bit, that ``\rho`` is replaced by ``\sum |L|+\sum |L_a|``. The value stays finite. The sum is an upper bound on a path-metric gap in these units: a bit that never splits is reported as "at least this reliable", not as ``\pm\infty``.
+
+# Ties
+A metric tie is deterministic, not a coin toss. When two incoming paths have the same metric, the survivor is the one with the smaller input bit; if those bits are equal, the smaller previous-state index wins. The other path is kept as the competitor with ``\Delta = 0``. Every bit on which the two paths disagree then has ``\rho = 0``: the a-posteriori approximation is 0, and the extrinsic value cancels the information-bit prior or, for a coded bit, the channel LLR. ``L .< 0`` reads a zero as bit 0.
+
+The update walks the whole block, so time and memory grow as the square of the block length. This is a short-block decoder, not a sliding-window implementation. The code is not systematic, so an information bit has no channel LLR to subtract beyond ``L_a``. There is no separate a priori on coded bits: ``L(c)`` is the observation ``L_e(c)`` subtracts. This function does not iterate with an outer code.
 """
-function sova_decode(llr::AbstractVector{<:AbstractFloat}; apriori::Union{Nothing,AbstractVector{<:Real}}=nothing)
+function sova_decode(
+    llr::AbstractVector{<:AbstractFloat};
+    apriori::Union{Nothing,AbstractVector{<:Real}}=nothing,
+    return_coded::Bool=false,
+)
     all(isfinite, llr) || throw(ArgumentError("LLRs must be finite"))
     n_coded = length(llr)
     iseven(n_coded) || throw(ArgumentError("LLR length must be even, got $n_coded"))
@@ -502,21 +520,34 @@ function sova_decode(llr::AbstractVector{<:AbstractFloat}; apriori::Union{Nothin
     end
 
     ρ = fill(Inf, n_bits)
+    ρc = return_coded ? fill(Inf, n_coded) : Float64[]
+    coded_hat = return_coded ? Vector{Int}(undef, n_coded) : Int[]
+    if return_coded
+        @inbounds for t in 1:n_sym
+            out = CONV_OUT[state_after[t] + 1, ml_bit[t] + 1]
+            coded_hat[2t - 1] = (out >> 1) & 1
+            coded_hat[2t] = out & 1
+        end
+    end
     @inbounds for t in 1:n_sym
         s_end = state_after[t + 1] + 1
         cs = tb_comp[t, s_end]
         cs < 0 && continue
         Δ = tb_delta[t, s_end]
-        if t <= n_bits && tb_comp_bit[t, s_end] != ml_bit[t]
+        comp_b = tb_comp_bit[t, s_end]
+        if t <= n_bits && comp_b != ml_bit[t]
             ρ[t] = min(ρ[t], Δ)
         end
+        return_coded && _sova_relax_coded!(ρc, coded_hat, t, cs, comp_b, Δ)
         cj = cs
         for j in (t - 1):-1:1
             bj = tb_bit[j, cj + 1]
+            pj = tb_state[j, cj + 1]
             if j <= n_bits && bj != ml_bit[j]
                 ρ[j] = min(ρ[j], Δ)
             end
-            cj = tb_state[j, cj + 1]
+            return_coded && _sova_relax_coded!(ρc, coded_hat, j, pj, bj, Δ)
+            cj = pj
         end
     end
 
@@ -533,7 +564,29 @@ function sova_decode(llr::AbstractVector{<:AbstractFloat}; apriori::Union{Nothin
         isfinite(r) || (r = bound)
         Le[t] = (1 - 2 * ml_bit[t]) * r - La[t]
     end
-    return Le
+    return_coded || return Le
+
+    Lc = Vector{Float64}(undef, n_coded)
+    @inbounds for j in 1:n_coded
+        r = ρc[j]
+        isfinite(r) || (r = bound)
+        # Extrinsic split: the gap approximates |L_APP|, so remove the channel LLR.
+        Lc[j] = (1 - 2 * coded_hat[j]) * r - Float64(llr[j])
+    end
+    return (Le, Lc)
+end
+
+function _sova_relax_coded!(
+    ρc::Vector{Float64}, coded_hat::Vector{Int}, t::Int, s::Int, b::Int, Δ::Float64,
+)
+    out = CONV_OUT[s + 1, b + 1]
+    i0 = 2t - 1
+    i1 = 2t
+    c0 = (out >> 1) & 1
+    c1 = out & 1
+    c0 != coded_hat[i0] && (ρc[i0] = min(ρc[i0], Δ))
+    c1 != coded_hat[i1] && (ρc[i1] = min(ρc[i1], Δ))
+    return nothing
 end
 
 function _binary_bits(bits::AbstractVector{<:Integer})

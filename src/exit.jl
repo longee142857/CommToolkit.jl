@@ -30,7 +30,10 @@ This is a teaching measurement surface. It is not NR LDPC EXIT production
 tooling: there is no density evolution, no degree-distribution optimisation,
 no 3GPP code or rate matching, and no trajectory tracking of a running
 iterative receiver. [`plot_exit_chart`](@ref) draws the two measured curves
-after `using Plots`.
+after `using Plots`. Decoder curves call `bcjr_decode` and
+`ldpc_decode_details` only. As of 1.2.2, `sova_decode(...; return_coded=true)`
+can return a teaching coded-bit extrinsic (a competing-path gap, not MAP);
+this module does not measure it.
 """
 module EXIT
 
@@ -553,6 +556,8 @@ coded BPSK over AWGN. The decoders are called, not rewritten.
 - `decoder`:
   - `:bcjr` — the terminated ``(7, 5)`` rate-1/2 code: [`conv_encode`](@ref CommToolkit.Coding.conv_encode) plus [`bcjr_decode`](@ref CommToolkit.Coding.bcjr_decode). `bcjr_decode` already returns extrinsic information-bit LLRs, ``L_e = L_{\mathrm{post}} - L_a``. The actual rate ``R = n/(2n+4)`` including the two tail bits sets the coded-bit noise.
   - `:ldpc` — a short [`LDPCCode`](@ref CommToolkit.Coding.LDPCCode), required as `code`. The decoder input is channel LLR plus synthetic prior (the decoder has no separate prior entry; see [`ldpc_decode_details`](@ref CommToolkit.Coding.ldpc_decode_details)). The measured extrinsic on information positions is ``L_e = L_{\mathrm{post}} - L_a`` with `early_stop = false`, `max_iter = ldpc_iterations`, and `algorithm` forwarded.
+
+  `:sova` is not accepted. `sova_decode(...; return_coded=true)` (1.2.2) can return a teaching coded-bit extrinsic, but that vector is a competing-path gap rather than the MAP split this curve measures, and it is not wired in.
 - `ia`, `method`, `nbins`, `clip`, `sigma_max`, `seed`: as in [`exit_demap_transfer`](@ref).
 - `ebn0_db`: information-bit ``E_b/N_0`` in dB. Coded bits are BPSK of energy 1, so the per-component noise variance is ``\sigma^2 = (1/R)/(2\,E_b/N_0)``, the convention documented on `ldpc_decode_details`.
 - `frames`: frames measured per grid point.
