@@ -11,6 +11,7 @@ export LDPCCode, LDPCResult
 export gallager_ldpc, array_ldpc, hamming74_ldpc, ldpc_from_H
 export ldpc_encode, ldpc_decode, ldpc_decode_details, ldpc_syndrome
 export ldpc_generator_matrix, ldpc_column_degrees, ldpc_row_degrees
+export PolarCode, polar_code, polar_encode, polar_sc_decode
 
 @doc raw"""
 Rate-1/2 feedforward convolutional code with constraint length ``K = 3`` (memory ``m = 2``, four states).
@@ -759,5 +760,6 @@ end
 include("ldpc.jl")
 include("turbo.jl")
 include("algebraic.jl")
+include("polar.jl")
 
 end # module Coding

@@ -1,5 +1,15 @@
 # 变更记录
 
+## 1.2.1
+
+教学 Arikan 极化码：短帧构造、系统/非系统编码与串行抵消（SC）译码。坐在 1.2.0（短 RS、EXIT、IR-HARQ、教学 CDL、教学迷你 xApp）之上，是 1.x 内的增加：稳定导出清单增加 4 个名字（`PolarCode`、`polar_code`、`polar_encode`、`polar_sc_decode`），已有名字的位置参数、返回值与语义都不变，`simulate_link`、xApp、CDL、EXIT、RS 一个字符都没有改，v1.0.0 的全部默认行为不变。这是教学 Arikan polar SC，不是 3GPP NR polar：没有 CRC 级联（也就没有 CRC-aided 译码），没有 CA-SCL 或任何列表译码，没有速率匹配（``N = 2^n`` 原样发送，无删余 / 缩短 / 重复），没有 PW 或 QPP 交织，没有 3GPP 母码，也没有 38.212 的 NR 可靠度序列。有意留在范围之外的仍是完整几何 TR 38.901 CDL（角度、射线、天线几何、空间一致性、MIMO 全矩阵）、NR LDPC、NR polar、真 O-RAN。
+
+- 构造：`polar_code(n, k; design_snr_db=0.0)` 返回 `PolarCode`（字段 `n`、`k`、`info_pos`、`frozen`、`design_snr_db`、`z`）。码长 ``N = 2^n``、``2 \le N \le 256``（教学上限），``1 \le k \le N``。信息集由 Bhattacharyya 参数递归选出：根信道取二元输入 AWGN 在设计 ``E_s/N_0`` 下的 ``Z = e^{-E_s/N_0}``，按 ``Z^- = 2Z - Z^2``、``Z^+ = Z^2`` 展开到 ``N`` 个比特信道（Arikan，IEEE Trans. Inf. Theory 55(7):3051–3073，2009，Prop. 5），取 ``Z`` 最小的 ``k`` 个索引（1-based 升序，稳定排序）。递归对二元擦除信道精确，对 AWGN 是启发式可靠度排序——不是密度进化，更不是 NR 可靠度序列；`design_snr_db` 只是设计点，信息集不随实际信道自适应。
+- 编码：`polar_encode(code, bits; systematic=false)`。非系统编码是 ``x = u F^{\otimes n}`` 的自然序蝴蝶变换（``F = [1 0; 1 1]``），与 Arikan 论文的 ``B_N F^{\otimes n}`` 只差码字坐标的比特反转置换，码集合相同；冻结位填 0。`systematic=true` 走 Arikan 2011（IEEE Trans. Inf. Theory 57(5):3195–3200）思想的三角回代：``F^{\otimes n}`` 单位对角下三角、信息位主子式必可逆，保证 ``x_A = \texttt{bits}``。两种映射的码字集合相同，系统编码不是近似。
+- 译码：`polar_sc_decode(code, llr; systematic=false)`。逐位串行抵消，f 运算用精确 box-plus（稳定形式，复用 LDPC 的内部函数），g 运算用 ``(1-2\hat u)\alpha_i + \alpha_{i+m}``，冻结位强制判 0，末位 LLR 平局判 0。LLR 约定与全包一致（正值表示比特 0，与 `demodulate_soft` 相同）；只接受有限浮点，整数硬比特被拒绝。复杂度每帧 ``O(N \log N)``。不是最大似然：早判错的比特沿格图传播；没有 CRC 级联，也没有 SCL / SCF / BP 译码器。
+- 诚实的对照（`test/polar.jl`）：Bhattacharyya 递归逐步手算核对；``N \in \{2, 4, 8, 16, 32\}`` 多个设计点的信息集冻结为固定向量；蝴蝶变换的对合性、线性性与 ``N = 2, 4`` 手算；``N = 8, k = 3`` 穷举全部 256 条消息验证两种编码的码字集合相同、系统性逐点成立；最小距离穷举等于 ``2^{\min \operatorname{popcount}(i-1)}``；``N = 8`` 全部 ``k`` 的无噪声 SC 穷举往返。两条统计锚点都在种子 `0x0c0de1162`、Clopper–Pearson ``\alpha = 10^{-4}`` 下：``k = 1`` 时 ``(N, 1)`` 极化码就是重复码、SC 退化为 LLR 求和，``N = 2``（2 dB，8000 帧）与 ``N = 4``（3 dB，12000 帧）的误码率回到 `ber_bpsk_awgn` 的 ``Q(\sqrt{2\gamma_b})``；``N = 64, k = 32``（`design_snr_db = 2.0`，每点 1000 帧）在 2.0 与 3.0 dB 上的信息比特 BER 与 BLER（``1-(1-p_b)^{32}``）区间上界低于未编码 BPSK，且两点区间互不重叠。演示 `demos/polar_sc.jl` 打印构造信息集、无噪声往返、重复码锚点闭式行与小 BER 扫描，不加载 Plots。
+- 文档与契约：`docs/src/api.md` 的 Coding 稳定导出加 4 个名字、源文件行注明 `src/polar.jl`；`docs/src/index.md` 的 `@docs` 块同步；边界、已知限制、验证矩阵与 README 同步，「教学 Arikan polar SC，非 NR polar」写进边界与 README；`test/runtests.jl` 与 `test/contract.jl` 的版本断言升到 `v"1.2.1"`。没有触碰 `fpga/ax7020`，也没有触碰 1.1.0 的 RS 面、1.1.1 的 EXIT、1.1.2 的 `harq` 关键字、1.1.3 的 `src/cdl.jl`、1.2.0 的 `src/xapp.jl`。
+
 ## 1.2.0
 
 路线 C：教学多用户 KPI→动作迷你 xApp。坐在 1.1.3（短 RS、EXIT、IR-HARQ、教学 CDL）之上，是 1.x 内的增加：稳定导出清单增加 10 个名字，已有名字的位置参数、返回值与语义都不变，`simulate_link` 一个字符都没有改，v1.0.0 的全部默认行为不变。这是教学迷你 xApp，不是 O-RAN：没有 E2 接口，没有 near-RT RIC，没有 E2SM，没有前传 / eCPRI 或功能切分，没有 NR 调度器，没有 NR CQI，也没有 O-RAN 合规声称。有意留在范围之外的仍是完整几何 TR 38.901 CDL（角度、射线、天线几何、空间一致性、MIMO 全矩阵）、NR LDPC、真 O-RAN。
