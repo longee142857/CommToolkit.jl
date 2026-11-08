@@ -1,3 +1,5 @@
+**中文** | [English](README.en.md)
+
 # CommToolkit.jl
 
 基带通信链路仿真库，当前 **v1.2.2**（[`Project.toml`](Project.toml)）。把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
