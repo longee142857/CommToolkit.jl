@@ -1,5 +1,7 @@
 # 变更记录
 
+详细变更看这里；README 只做导航。
+
 ## 1.2.2
 
 教学 SOVA 的编码比特外信息。坐在 1.2.1（教学 Arikan polar SC）之上，是 1.x 内的增加：稳定导出清单不增删名字，`sova_decode` 增加关键字 `return_coded`（默认 `false`）。省略该关键字时返回值与 1.0–1.2.1 逐比特相同，已有名字的位置参数、返回值和默认都不改。`bcjr_decode`、`viterbi_decode`、`exit_decoder_transfer`、`simulate_link` 的行为没有改。`bicm_decode(...; decoder=:sova)` 成功调用仍是一次解调、仍不请求 `return_coded`；`iterations ≠ 1` 时依旧拒绝，只是报错文案改成「这条路径不迭代」。这是教学软输出 Viterbi，不是 MAP，不是 BCJR 的等价物，不是 Turbo 整机，也不是 NR。有意留在范围之外的仍是完整几何 TR 38.901 CDL、NR LDPC、NR polar、真 O-RAN。
