@@ -2,7 +2,7 @@
 # Submodule exports must match it, plus the one intentional qualified name.
 
 @testset "Public API contract" begin
-    @test pkgversion(CommToolkit) == v"1.2.2"
+    @test pkgversion(CommToolkit) == v"1.5.0"
     root = pkgdir(CommToolkit)
     api = read(joinpath(root, "docs", "src", "api.md"), String)
     @test occursin("## v1.0 承诺", api)

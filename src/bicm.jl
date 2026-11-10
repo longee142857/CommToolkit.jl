@@ -406,7 +406,7 @@ Extrinsic bit LLRs in modulator order.
 # Arguments
 - `symbols`: one coherent observation per symbol. Real samples are accepted for [`BPSK`](@ref) and [`PSK`](@ref), as in [`demodulate_soft`](@ref). `QPSK` and `QAM` require complex samples.
 - `scheme`: the constellation. `DBPSK` and `DQPSK` are rejected.
-- `noise_var`: ``\sigma^2 = N_0/2`` of one real noise component, the same number [`demodulate_soft`](@ref) and [`CommToolkit.Channel.awgn`](@ref) use. Finite and positive.
+- `noise_var`: ``\sigma^2 = N_0/2`` of one real noise component, the same number [`demodulate_soft`](@ref) and [`CommToolkit.Channel.awgn`](@ref) use. Not the complex total ``N_0`` of [`CommToolkit.MIMO.apply_mimo`](@ref). Finite and positive.
 - `apriori`: bit LLRs in modulator order, ``L_a=\log P(b=0)/P(b=1)``, length ``\texttt{length(symbols)}\times k``. `nothing` is a zero prior. The returned value does not include `apriori`: it is extrinsic.
 - `approx`: `:exact` marginalises the constellation. `:maxlog` keeps the best point of each bit subset (Robertson, Villebrun, and Hoeher, Proc. IEEE ICC, 1995, pp. 1009–1013).
 - `labels`: see [`bicm_map`](@ref). `nothing` is Gray.

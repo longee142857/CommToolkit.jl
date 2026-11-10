@@ -2,7 +2,7 @@
 
 # CommToolkit.jl
 
-A baseband communications link simulator, currently **v1.2.2** ([`Project.toml`](Project.toml)). It matches Monte Carlo error rates to textbook closed-form formulas, and runs a teaching-level MCS / HARQ loop on AWGN. Author: 刘恒宇 (longee142857).
+A baseband communications link simulator, currently **v1.5.0** ([`Project.toml`](Project.toml)). It matches Monte Carlo error rates to textbook closed-form formulas, and runs a teaching-level MCS / HARQ loop on AWGN. Author: 刘恒宇 (longee142857).
 
 Names brought in by `using CommToolkit` are the stable surface, frozen under SemVer: removing a name, renaming it, or changing the meaning of a positional argument or an existing return value bumps the major version. Relative to 1.0.0, 1.x only adds. Per-release detail is in the [changelog](CHANGELOG.md).
 
@@ -23,6 +23,8 @@ bits = rand(0:1, 10_000)
 rx = awgn(modulate(bits, BPSK()), 8, 1)  # 8 dB Eb/N0
 ber(bits, demodulate(rx, BPSK()))
 ```
+
+`8` is ``E_b/N_0`` in dB for this BPSK call. The argument of `simulate_link` is ``E_s/N_0``, and `apply_channel` is a time-domain sample SNR. `noise_var` in the soft demodulator is the per-real-dimension ``\sigma^2 = N_0/2``. The value returned by a complex `fir_channel`, and `noise_var` of `apply_mimo`, are the total complex noise power ``N_0``. Each function's docstring names its own quantity.
 
 ## Features
 
@@ -57,6 +59,10 @@ Source is in `src/`. Scripts that run on their own are in `demos/`. The AX7020 t
 ## Validation
 
 Fixed seed `0x0c0de1162`. Solid lines are theory and markers are simulation; the figure is produced by `demos/validation_figure.jl`. `test/` uses two-sided Clopper–Pearson intervals (``\alpha = 10^{-4}``). Formulas, sources, and the test correspondence are in the [validation matrix](docs/src/validation.md). The figure below is still the four curves from before v0.6; the other comparisons are on the same page.
+
+The plot-free uncoded check is [`demos/lab_awgn_ber.jl`](demos/lab_awgn_ber.jl). It uses a local RNG and, at 0/2/4 dB, prints for BPSK and QPSK the sample count, error count, BER, theory value, and a per-point Wilson interval (``\alpha = 10^{-3}`` at each point, not one ``\alpha`` for all six). Those working points also require at least 30 errors; that count is not a claim about 8 dB. An error count of 0 is not a claim that the BER is zero. BPSK and QPSK share one ``Q(\sqrt{2\gamma})`` inside the script. It is not the only copy in the repository. The terminated `(7, 5)` code turns `n` information bits into `2(n+2)` coded bits, so the effective rate is not `1/2`. This script does not include coding.
+
+The plot-free root-raised-cosine check is [`demos/lab_rrc_isi.jl`](demos/lab_rrc_isi.jl). It uses a local RNG and real BPSK. The transmitter is a full convolution, then a matched filter, then sampling at a known index. Raised cosine is only a reference. The residual is the measured truncation. The eye lower bound is ``2(g_0-S)`` and may be negative. A one-sample phase offset shows a sampling mismatch, not a synchronizer. `pulse_shape` still truncates for the eye-diagram helper; this script does not use that path.
 
 ![Monte Carlo bit error rates and closed-form curves for BPSK, QPSK, and 16-QAM on AWGN, and for BPSK on flat Rayleigh](docs/src/assets/ber_validation.png)
 

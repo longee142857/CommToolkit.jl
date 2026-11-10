@@ -2,7 +2,7 @@
 
 # CommToolkit.jl
 
-基带通信链路仿真库，当前 **v1.2.2**（[`Project.toml`](Project.toml)）。把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
+基带通信链路仿真库，当前 **v1.5.0**（[`Project.toml`](Project.toml)）。把蒙特卡洛误码率和教材中的闭式公式对上，并在 AWGN 上跑一条教学级的 MCS / HARQ 闭环。作者刘恒宇（longee142857）。
 
 `using CommToolkit` 带入的名字是稳定面，按 SemVer 冻结：删除、改名或改变位置参数和已有返回值的含义，升主版本。1.x 相对 1.0.0 只做加法。各版细节见 [变更记录](CHANGELOG.md)。
 
@@ -23,6 +23,8 @@ bits = rand(0:1, 10_000)
 rx = awgn(modulate(bits, BPSK()), 8, 1)  # 8 dB Eb/N0
 ber(bits, demodulate(rx, BPSK()))
 ```
+
+`8` 是这次 BPSK 调用的 ``E_b/N_0``（dB）。`simulate_link` 的参数是 ``E_s/N_0``，`apply_channel` 是时域样本 SNR。软解调的 `noise_var` 是每实维 ``\sigma^2 = N_0/2``；复 `fir_channel` 的返回值和 `apply_mimo` 的 `noise_var` 是复噪声总功率 ``N_0``。各函数的文档写自己的定义。
 
 ## 功能
 
@@ -57,6 +59,10 @@ ber(bits, demodulate(rx, BPSK()))
 ## 验证
 
 固定种子 `0x0c0de1162`。实线是理论值，标记是仿真；生成脚本是 `demos/validation_figure.jl`。`test/` 用双侧 Clopper–Pearson 区间（``\alpha = 10^{-4}``）。公式、出处和测试对应关系见 [验证矩阵](docs/src/validation.md)。下图仍是 v0.6 之前的四条曲线，其余对照在同一页。
+
+不画图的未编码对照是 [`demos/lab_awgn_ber.jl`](demos/lab_awgn_ber.jl)：局部随机数，在 0/2/4 dB 打印 BPSK/QPSK 的样本数、错误数、BER、理论值和逐点 Wilson 区间（每个点 ``\alpha = 10^{-3}``，不是六个点合在一起）。这几个工作点还要求错误数至少 30，这条要求不推广到 8 dB。错误数为 0 时上界不是无误码证明。脚本里 BPSK 与 QPSK 共用一条 ``Q(\sqrt{2\gamma})``，不是全仓唯一实现。`(7, 5)` 终止码把 `n` 个信息比特编成 `2(n+2)` 个编码比特，有效码率不是 `1/2`；这条脚本不含编码。
+
+不画图的根升余弦对照是 [`demos/lab_rrc_isi.jl`](demos/lab_rrc_isi.jl)。局部随机数，实 BPSK。发端全卷积、匹配滤波、按已知下标抽样。升余弦只作参照。残余是截断的测量。眼图下界是 ``2(g_0-S)``，允许为负。错一个样本只说明抽样相位不同，不是同步。`pulse_shape` 的截尾仍是眼图辅助接口，这条脚本不用它。
 
 ![BPSK、QPSK、16-QAM 在 AWGN 下以及 BPSK 在平坦瑞利下的蒙特卡洛误码率与闭式曲线](docs/src/assets/ber_validation.png)
 

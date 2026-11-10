@@ -29,9 +29,9 @@
 | `Visualization` | `src/visualization.jl`。星座、眼图、脉冲响应在扩展 `ext/CommToolkitPlotsExt.jl`，`using Plots` 之后才加载 |
 | `Sync` | `src/sync.jl` |
 
-1.1.2 是 1.x 内的增加：`simulate_link` 增加关键字 `harq`（`:chase` 默认，与 1.0.0 逐比特一致；`:ir` 是删余卷积行上的教学增量冗余），稳定清单不增删名字，已有位置参数和返回值不变。1.1.3 按同一加法规则增加 6 个名字（`CDLProfile`、`cdl_profile`、`CDLTaps`、`cdl_taps`、`apply_cdl`、`cdl_channel`），即 TR 38.901 CDL-A/B/C 延迟–功率剖面上的教学簇延迟线；已有名字一个不动。1.2.0 把路线 C 收进范围：`XApp` 子模块的教学多用户 KPI→动作迷你 xApp，增加 10 个名字，只增不破；它是教学闭环，不是 O-RAN。1.2.1 按同一加法规则增加 4 个名字（`PolarCode`、`polar_code`、`polar_encode`、`polar_sc_decode`），即教学 Arikan 极化码（Bhattacharyya 信息集、系统 / 非系统编码、串行抵消译码）；已有名字一个不动。这是教学 Arikan polar SC，不是 NR polar。1.2.2 给 `sova_decode` 增加关键字 `return_coded`（默认 `false`），不增删名字；编码比特外信息是教学 SOVA，不是 MAP。
+1.1.2 是 1.x 内的增加：`simulate_link` 增加关键字 `harq`（`:chase` 默认，与 1.0.0 逐比特一致；`:ir` 是删余卷积行上的教学增量冗余），稳定清单不增删名字，已有位置参数和返回值不变。1.1.3 按同一加法规则增加 6 个名字（`CDLProfile`、`cdl_profile`、`CDLTaps`、`cdl_taps`、`apply_cdl`、`cdl_channel`），即 TR 38.901 CDL-A/B/C 延迟–功率剖面上的教学簇延迟线；已有名字一个不动。1.2.0 把路线 C 收进范围：`XApp` 子模块的教学多用户 KPI→动作迷你 xApp，增加 10 个名字，只增不破；它是教学闭环，不是 O-RAN。1.2.1 按同一加法规则增加 4 个名字（`PolarCode`、`polar_code`、`polar_encode`、`polar_sc_decode`），即教学 Arikan 极化码（Bhattacharyya 信息集、系统 / 非系统编码、串行抵消译码）；已有名字一个不动。这是教学 Arikan polar SC，不是 NR polar。1.2.2 给 `sova_decode` 增加关键字 `return_coded`（默认 `false`），不增删名字；编码比特外信息是教学 SOVA，不是 MAP。1.5.0 不增删导出名字，也不改根升余弦公式。相对已发布的 1.2.2，`awgn` 与 OFDM 的 `apply_channel` 在 `snr_db = +Inf` 时不再抽取加性噪声，返回值仍是无噪声波形；整数 `viterbi_decode` 在原有长度和终止检查之后拒绝非 0/1。细节与两处未修问题在 CHANGELOG。
 
-`test/contract.jl` 要求 `pkgversion(CommToolkit) == v"1.2.2"`，并核对三件事。`names(CommToolkit)` 比本节清单多一个名字，即模块自己的 `CommToolkit`；去掉它之后清单与 `names` 相同。各子模块的 `names` 同样含有该子模块自己的名字；去掉这些模块名之后，子模块导出的并集比清单多且只多 `modulation`。每个清单里的名字，以及 `CommToolkit` 和 `CommToolkit.modulation`，都出现在 `docs/src/index.md` 的 `@docs` 块里。
+`test/contract.jl` 要求 `pkgversion(CommToolkit) == v"1.5.0"`，并核对三件事。`names(CommToolkit)` 比本节清单多一个名字，即模块自己的 `CommToolkit`；去掉它之后清单与 `names` 相同。各子模块的 `names` 同样含有该子模块自己的名字；去掉这些模块名之后，子模块导出的并集比清单多且只多 `modulation`。每个清单里的名字，以及 `CommToolkit` 和 `CommToolkit.modulation`，都出现在 `docs/src/index.md` 的 `@docs` 块里。
 
 ## 稳定导出
 

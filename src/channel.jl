@@ -21,24 +21,33 @@ Add real or circularly symmetric complex AWGN.
 
 # Arguments
 - `symbols`: a real vector is given one real noise component; a complex vector is given independent real and imaginary components.
-- `snr_db`: ``E_b/N_0`` in decibels. `Inf` adds no noise.
-- `energy_per_bit`: ``E_b`` in the same units as the symbol energy. The keyword form uses this value directly.
-- `bits_per_symbol`: positional form. Assumes unit average symbol energy ``E_s = 1``, so ``E_b = 1/\texttt{bits\_per\_symbol}``.
+- `snr_db`: ``E_b/N_0`` in decibels. This is not the ``E_s/N_0`` argument of [`Link.simulate_link`](@ref) and not the time-domain sample SNR of [`OFDM.apply_channel`](@ref). `+Inf` adds no noise and does not draw from the global RNG.
+- `energy_per_bit`: ``E_b`` in the same units as the symbol energy. The keyword form uses this value directly. A non-positive value throws before the `+Inf` bypass.
+- `bits_per_symbol`: positional form. Assumes unit average symbol energy ``E_s = 1``, so ``E_b = 1/\texttt{bits\_per\_symbol}``. Values below 1 throw before any draw.
 
 # Returns
 A noisy copy of `symbols`. The noise on each real dimension has variance
 
 ```math
-\sigma^2 = \frac{N_0}{2} = \frac{E_b}{2\,E_b/N_0}.
+\sigma^2 = \frac{N_0}{2} = \frac{E_b}{2\,E_b/N_0}, \qquad N_0 = \frac{E_b}{E_b/N_0}.
 ```
 
-For a complex symbol the total noise power is ``N_0``. This is the baseband AWGN model used with the BPSK / QPSK / ``M``-QAM error formulas in Proakis and Salehi, *Digital Communications*, 5th ed., §4.2 and §5.2.
+For a complex symbol the two components are independent and the total noise power is ``\mathbb{E}[|n|^2] = N_0``. A real symbol has one component, so its total noise power is ``\sigma^2 = N_0/2``. This is the baseband AWGN model used with the BPSK / QPSK / ``M``-QAM error formulas in Proakis and Salehi, *Digital Communications*, 5th ed., §4.2 and §5.2.
 
 # Notes
 The positional method does not estimate ``E_s`` from `symbols`. Callers that use [`Modulation.modulate`](@ref) already have ``E_s = 1``.
+
+`snr_db` here is ``E_b/N_0``. [`Link.simulate_link`](@ref) passes an ``E_s/N_0`` by calling the keyword form with `energy_per_bit = 1` when ``E_s = 1``. [`Modulation.demodulate_soft`](@ref) takes the per-dimension variance ``\sigma^2 = N_0/2``, not the complex total ``N_0``. [`fir_channel`](@ref) returns that total for a complex convolution, and [`MIMO.apply_mimo`](@ref) takes it as `noise_var`.
+
+This ``E_b`` is the energy of the modulated bits. It is not divided by a code rate. [`Coding.conv_encode`](@ref) appends two tail bits, so `n` information bits become `2(n+2)` coded bits and the effective rate is `n/(2(n+2))`, not `1/2`. Callers who want an information-bit ``E_b/N_0`` pass that energy as `energy_per_bit`. No coded error-rate curve is computed here.
 """
 function awgn(syms::AbstractVector{T}, snr_db::Real; energy_per_bit::Real=1.0) where {T}
     energy_per_bit > 0 || throw(ArgumentError("energy_per_bit must be positive"))
+    # Finite energy only: +Inf energy stays on the formula below, as before.
+    if isinf(snr_db) && snr_db > 0 && isfinite(energy_per_bit)
+        z = T <: Complex ? zero(ComplexF64) : 0.0
+        return syms .+ z
+    end
     ρ = snr_db_to_linear(snr_db)
     noise_var = energy_per_bit / (2 * ρ)
     noise_std = sqrt(noise_var)
@@ -66,7 +75,7 @@ Flat Rayleigh fading, independent from symbol to symbol,
 y = h x + n, \qquad h \sim \mathcal{CN}(0, 1),
 ```
 
-so ``\mathbb{E}[|h|^2] = 1``. Real `symbols` are promoted to complex. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_s = 1`` and ``E_b = 1/\texttt{bits\_per\_symbol}``. ``\mathrm{snr\_db} = +\infty`` disables the noise.
+so ``\mathbb{E}[|h|^2] = 1``. Real `symbols` are promoted to complex. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_s = 1`` and ``E_b = 1/\texttt{bits\_per\_symbol}``. That `snr_db` is not an ``E_s/N_0`` and not a sample SNR. ``\mathrm{snr\_db} = +\infty`` adds no noise and does not draw it. The coefficients `h` are still drawn.
 
 # Returns
 - The two-argument (plus SNR) method returns `(rx, h)`: the faded observation and the channel coefficients.
@@ -134,7 +143,7 @@ Block Rayleigh fading, ``y = h x + n``, with `h` from [`block_rayleigh`](@ref).
 
 # Arguments
 - `symbols`: real or complex. Real inputs are promoted to complex. ``E_s = 1`` is assumed and is not estimated.
-- `snr_db`: ``E_b/N_0`` in decibels, the same positional convention as [`rayleigh_channel`](@ref). ``E_b = 1/\texttt{bits\_per\_symbol}``. `+Inf` adds no noise.
+- `snr_db`: ``E_b/N_0`` in decibels, the same positional convention as [`rayleigh_channel`](@ref). ``E_b = 1/\texttt{bits\_per\_symbol}``. Not an ``E_s/N_0`` and not a sample SNR. `+Inf` adds no noise and does not draw it. The block coefficients are still drawn.
 - `bits_per_symbol`: passed to [`awgn`](@ref). Must be ≥ 1.
 - `block_length`: number of consecutive symbols that share one coefficient. This is not a perfect-CSI flag.
 
@@ -206,7 +215,7 @@ end
 
 # Arguments
 - `signal`, `taps`: passed to [`apply_fir`](@ref). Taps are deterministic. This is not [`CommToolkit.OFDM.TDLChannel`](@ref), not a 3GPP delay profile, and not a Jakes spectrum.
-- `snr_db`: ``E_b/N_0`` in decibels, the same convention as [`awgn`](@ref). It is **not** the signal-to-noise ratio of the samples after the FIR, and the tap energy is not folded into ``E_b``. `+Inf` adds no noise and does not draw from the global random stream.
+- `snr_db`: ``E_b/N_0`` in decibels, the same convention as [`awgn`](@ref). It is **not** an ``E_s/N_0``, **not** the sample SNR of [`OFDM.apply_channel`](@ref), and **not** the signal-to-noise ratio of the samples after the FIR. The tap energy is not folded into ``E_b``. `+Inf` adds no noise and does not draw from the global random stream. A non-positive `energy_per_bit` still throws.
 - `energy_per_bit`: ``E_b`` in the keyword method. Must be positive. It is not estimated from `signal`.
 - `bits_per_symbol`: positional method. Assumes ``E_s = 1``, so ``E_b = 1/\texttt{bits\_per\_symbol}``, and must be ≥ 1. Callers that used [`Modulation.modulate`](@ref) already have ``E_s = 1``.
 
@@ -290,7 +299,7 @@ Flat Rice fading, independent from symbol to symbol, then AWGN,
 y = h x + n,
 ```
 
-with `h` from [`rice_fading`](@ref). Real `symbols` are promoted to complex. ``E_s = 1`` is assumed and is not estimated. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_b = 1/\texttt{bits\_per\_symbol}``. Because ``\mathbb{E}[|h|^2] = 1``, `snr_db` is the average ``E_b/N_0``. ``\mathrm{snr\_db} = +\infty`` disables the noise but still draws `h` (except when `K = Inf`, where `h` is identically 1 and no scatter is drawn).
+with `h` from [`rice_fading`](@ref). Real `symbols` are promoted to complex. ``E_s = 1`` is assumed and is not estimated. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_b = 1/\texttt{bits\_per\_symbol}``. Because ``\mathbb{E}[|h|^2] = 1``, `snr_db` is the average ``E_b/N_0``, not an ``E_s/N_0`` and not a sample SNR. ``\mathrm{snr\_db} = +\infty`` adds no noise and does not draw it, but still draws `h` (except when `K = Inf`, where `h` is identically 1 and no scatter is drawn).
 
 `K` is a required keyword. It is the linear Rice factor documented on [`rice_fading`](@ref), not a decibel value.
 
@@ -380,7 +389,7 @@ end
 
 `L`-branch receive diversity, flat fading, ideal-CSI maximum-ratio combining.
 
-Each branch observes the same unit-energy symbol through an independent coefficient from [`rice_fading`](@ref), then independent AWGN at the stated average ``E_b/N_0``. `K` is the linear Rice factor, default `0` (Rayleigh). It is not in decibels. ``\mathbb{E}[|h_{\ell}|^2] = 1`` on every branch, so `snr_db` is the average per-branch ``E_b/N_0``, not the SNR after combining. The symbol energy is not split across branches.
+Each branch observes the same unit-energy symbol through an independent coefficient from [`rice_fading`](@ref), then independent AWGN at the stated average ``E_b/N_0``. `K` is the linear Rice factor, default `0` (Rayleigh). It is not in decibels. ``\mathbb{E}[|h_{\ell}|^2] = 1`` on every branch, so `snr_db` is the average per-branch ``E_b/N_0``, not the SNR after combining, not an ``E_s/N_0``, and not a sample SNR. `+Inf` adds no noise and does not draw it; the branch coefficients are still drawn (`K = Inf` draws none). The symbol energy is not split across branches.
 
 # Returns
 - `z`: length-`N` vector from [`mrc`](@ref), so a noiseless call returns the symbols.
@@ -547,7 +556,7 @@ Flat time-correlated Rayleigh fading, then AWGN,
 y = h x + n,
 ```
 
-with `h` from [`jakes_fading`](@ref). Real `symbols` are promoted to complex. ``E_s = 1`` is assumed and is not estimated. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_b = 1/\texttt{bits\_per\_symbol}``. Because ``\mathbb{E}[|h|^2] = 1``, `snr_db` is the average ``E_b/N_0``. ``\mathrm{snr\_db} = +\infty`` adds a zero noise vector and still draws that vector through [`awgn`](@ref).
+with `h` from [`jakes_fading`](@ref). Real `symbols` are promoted to complex. ``E_s = 1`` is assumed and is not estimated. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_b = 1/\texttt{bits\_per\_symbol}``. Because ``\mathbb{E}[|h|^2] = 1``, `snr_db` is the average ``E_b/N_0``, not an ``E_s/N_0`` and not a sample SNR. ``\mathrm{snr\_db} = +\infty`` adds no noise and does not draw it. The fading record from [`jakes_fading`](@ref) is still drawn.
 
 `fd` and `Ts` are the maximum Doppler in hertz and the sample interval in seconds, as on [`jakes_fading`](@ref). `fd * Ts` must be `< 1/2`.
 
@@ -719,7 +728,7 @@ i.i.d. flat Nakagami-m fading, then AWGN,
 y = h x + n,
 ```
 
-with `h` from [`nakagami_fading`](@ref). Real `symbols` are promoted to complex. ``E_s = 1`` is assumed and is not estimated. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_b = 1/\texttt{bits\_per\_symbol}``. Because ``\mathbb{E}[|h|^2] = 1``, `snr_db` is the average ``E_b/N_0``. ``\mathrm{snr\_db} = +\infty`` adds a zero noise vector and still draws that vector through [`awgn`](@ref), except that the fading draw follows [`nakagami_fading`](@ref) (`m = Inf` draws only the phase).
+with `h` from [`nakagami_fading`](@ref). Real `symbols` are promoted to complex. ``E_s = 1`` is assumed and is not estimated. The noise follows the same ``E_b/N_0`` convention as [`awgn`](@ref), with ``E_b = 1/\texttt{bits\_per\_symbol}``. Because ``\mathbb{E}[|h|^2] = 1``, `snr_db` is the average ``E_b/N_0``, not an ``E_s/N_0`` and not a sample SNR. ``\mathrm{snr\_db} = +\infty`` adds no noise and does not draw it. The fading draw still follows [`nakagami_fading`](@ref) (`m = Inf` draws only the phase).
 
 `m` is a required keyword. It is the Nakagami parameter on [`nakagami_fading`](@ref), not a decibel value.
 

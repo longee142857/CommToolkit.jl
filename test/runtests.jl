@@ -12,7 +12,7 @@ ENV["GKSwstype"] = get(ENV, "GKSwstype", "nul")
 @testset "Package hygiene" begin
     text = read(joinpath(pkgdir(CommToolkit), "Project.toml"), String)
     @test occursin("b0120378-1646-4a57-aae9-1dec7113c692", text)
-    @test pkgversion(CommToolkit) == v"1.2.2"
+    @test pkgversion(CommToolkit) == v"1.5.0"
     @test !occursin("a1b2c3d4-e5f6-7890-abcd-ef1234567890", text)
     deps = match(r"(?s)\[deps\](.*?)(?:\n\[|\z)", text).captures[1]
     @test !occursin("Plots", deps)
@@ -716,6 +716,38 @@ include("jakes_nakagami.jl")
 include("cdl.jl")
 include("bicm.jl")
 include("exit.jl")
+include("noise_contract.jl")
+include("rrc_lab.jl")
+
+# Pkg.test replaces LOAD_PATH and drops @stdlib. addenv keeps the parent
+# environment, including HOME and JULIA_DEPOT_PATH, and overrides only
+# LOAD_PATH. `@` is this project; `@stdlib` supplies Printf. `@v#.#` is
+# left out so the shared default environment is not on the path.
+function _run_demo_script(name::String)
+    root = pkgdir(CommToolkit)
+    script = joinpath(root, "demos", name)
+    sep = Sys.iswindows() ? ";" : ":"
+    cmd = addenv(
+        `$(Base.julia_cmd()) --project=$root $script`,
+        "JULIA_LOAD_PATH" => "@$(sep)@stdlib",
+    )
+    out = IOBuffer()
+    err = IOBuffer()
+    ok = success(pipeline(cmd; stdout=out, stderr=err))
+    if !ok
+        println(String(take!(out)))
+        println(String(take!(err)))
+    end
+    return ok
+end
+
+@testset "Uncoded AWGN lab script" begin
+    @test _run_demo_script("lab_awgn_ber.jl")
+end
+
+@testset "RRC ISI lab script" begin
+    @test _run_demo_script("lab_rrc_isi.jl")
+end
 
 @testset "Plots extension" begin
     @test_throws ErrorException plot_constellation(ComplexF64[1.0, -1.0], BPSK())

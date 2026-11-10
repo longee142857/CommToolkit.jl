@@ -431,7 +431,7 @@ Bit log-likelihood ratios of Gray-labelled [`BPSK`](@ref), [`QPSK`](@ref), [`PSK
 # Arguments
 - `symbols`: real or complex samples for BPSK. Complex samples for QPSK, PSK, and QAM. BPSK uses only the real part. A real vector passed with PSK, DBPSK, or DQPSK is treated as purely real. Differential blocks include the leading reference from [`modulate`](@ref).
 - `scheme`: the modulator whose labelling [`demodulate`](@ref) inverts.
-- `noise_var`: variance ``\sigma^2 = N_0/2`` of one real noise component. Finite and positive. This is the variance added by `awgn`:
+- `noise_var`: variance ``\sigma^2 = N_0/2`` of one real noise component. Finite and positive. This is not the complex total ``N_0 = \mathbb{E}[|n_i|^2]`` returned by a complex [`Channel.fir_channel`](@ref) or passed to [`MIMO.apply_mimo`](@ref). It is the variance added on each real dimension by `awgn`:
 
 ```math
 \sigma^2 = \frac{E_b}{2\,E_b/N_0}, \qquad N_0 = 2\sigma^2.

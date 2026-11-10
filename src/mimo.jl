@@ -225,7 +225,7 @@ end
 # Arguments
 - `x`: length-`n_tx` symbol vector. Real entries are promoted to complex.
 - `H`: `n_rx × n_tx` matrix.
-- `noise_var`: total complex noise variance ``\mathbb{E}[|n_i|^2]``. Each real dimension has variance `noise_var / 2`. `0` disables the noise. For unit-energy BPSK and an ``E_b/N_0`` of ``\rho``, the matching variance on an identity channel is ``N_0 = 1/\rho``, not ``N_0/2``.
+- `noise_var`: total complex noise power ``N_0 = \mathbb{E}[|n_i|^2]``. Each real dimension has variance `noise_var / 2`. This is not the per-dimension ``\sigma^2`` of [`Modulation.demodulate_soft`](@ref), which wants ``N_0/2``. `0` disables the noise and does not draw it. For unit-energy BPSK and an ``E_b/N_0`` of ``\rho``, the matching value on an identity channel is ``N_0 = 1/\rho``.
 
 # References
 Tse and Viswanath, 2005, §7.1.
@@ -330,7 +330,7 @@ Linear MMSE detection for uncorrelated unit-energy symbols,
 \hat x = \left(H^{\mathrm{H}} H + \sigma^2 I\right)^{-1} H^{\mathrm{H}} y,
 ```
 
-where ``\sigma^2`` is `noise_var`, the same complex noise variance passed to [`apply_mimo`](@ref) (Tse and Viswanath, 2005, §7.2). `noise_var = 0` is the left pseudo-inverse and agrees with ZF when ``H`` has full column rank.
+where ``\sigma^2`` is `noise_var`, the same complex total ``N_0 = \mathbb{E}[|n_i|^2]`` passed to [`apply_mimo`](@ref), not the per-dimension variance of [`Modulation.demodulate_soft`](@ref) (Tse and Viswanath, 2005, §7.2). `noise_var = 0` is the left pseudo-inverse and agrees with ZF when ``H`` has full column rank.
 """
 function mmse_detect(y::AbstractVector{<:Number}, H::AbstractMatrix{<:Number}, noise_var::Real)
     noise_var >= 0 || throw(ArgumentError("noise_var must be ≥ 0, got $noise_var"))
