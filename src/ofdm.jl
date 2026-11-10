@@ -201,6 +201,9 @@ function _channel_freq_response(channel::TDLChannel, n::Int)
 end
 
 function _awgn_ofdm(signal::AbstractVector{ComplexF64}, snr_db::Real)
+    if isinf(snr_db) && snr_db > 0
+        return copy(signal)
+    end
     P = sum(abs2, signal) / length(signal)
     snr_lin = exp10(float(snr_db) / 10)
     noise_power = P / snr_lin
@@ -215,7 +218,7 @@ end
 Apply the static TDL and then AWGN.
 
 # Arguments
-- `snr_db`: signal-to-noise ratio in decibels defined on the **time-domain samples after fading**, ``\mathrm{SNR} = P_{\mathrm{sample}} / \mathbb{E}[|n|^2]``. It is not ``E_b/N_0``. The cyclic prefix, the null subcarriers, and the tap powers all sit inside ``P_{\mathrm{sample}}``. `Inf` disables the noise.
+- `snr_db`: signal-to-noise ratio in decibels defined on the **time-domain samples after fading**, ``\mathrm{SNR} = P_{\mathrm{sample}} / \mathbb{E}[|n|^2]``. The complex noise is circular: each real dimension has variance ``\mathbb{E}[|n|^2]/2``, and ``\mathbb{E}[|n|^2]`` is the total noise power on one sample. This is not ``E_b/N_0`` and not the ``E_s/N_0`` of [`Link.simulate_link`](@ref). The cyclic prefix, the null subcarriers, and the tap powers all sit inside ``P_{\mathrm{sample}}``. `+Inf` adds no noise and does not draw it. The static taps themselves are not drawn from the global RNG.
 - The multipath tail past the original signal length is discarded. When `maximum(delays) ≤ N_cp` this does not disturb the cyclic convolution inside each kept OFDM symbol, except that energy leaking past the last sample of the burst is dropped.
 
 # Returns
@@ -341,7 +344,7 @@ Shrink each least-squares pilot estimate and then do the same linear interpolati
     \,\hat H_p^{\mathrm{LS}}.
 ```
 
-`snr_db` is used only as this shrinkage parameter. The formula is a per-pilot heuristic: it treats ``|\hat H|^2`` as if it were the prior power and it does **not** divide the noise variance by the FFT length or by the pilot energy. It is not the linear MMSE estimator that uses the channel frequency-correlation matrix (Edfors et al., 1998). At high `snr_db` the shrinkage tends to 1 and the receiver matches LS.
+`snr_db` is used only as this shrinkage parameter. It is not ``E_b/N_0``, not ``E_s/N_0``, and not the sample SNR of [`apply_channel`](@ref). The weight ``10^{-\mathrm{snr\_db}/10}`` is dimensionless here. The formula is a per-pilot heuristic: it treats ``|\hat H|^2`` as if it were the prior power and it does **not** divide the noise variance by the FFT length or by the pilot energy. It is not the linear MMSE estimator that uses the channel frequency-correlation matrix (Edfors et al., 1998). At high `snr_db` the shrinkage tends to 1 and the receiver matches LS.
 """
 function ofdm_rx_mmse(rx_signal::AbstractVector{<:Complex},
                       params::OFDMParams,

@@ -64,7 +64,7 @@ Linear minimum-mean-square-error block equalizer
 W_{\mathrm{MMSE}} = \left(H^{\mathrm{H}} H + \sigma^2 I\right)^{-1} H^{\mathrm{H}},
 ```
 
-where ``\sigma^2`` is `noise_var`, the variance of each entry of the additive noise in ``r = H s + \nu``, and the unknown symbols are modelled as unit-variance and uncorrelated (Proakis and Salehi, 5th ed., §9.4; Tse and Viswanath, 2005, §8.3).
+where ``\sigma^2`` is `noise_var`, the variance of each entry of the additive noise in ``r = H s + \nu``. A complex [`Channel.fir_channel`](@ref) returns ``N_0 = \mathbb{E}[|n_i|^2]`` for this argument; a real convolution returns ``N_0/2``. It is not the per-dimension ``\sigma^2`` of [`Modulation.demodulate_soft`](@ref). The unknown symbols are modelled as unit-variance and uncorrelated (Proakis and Salehi, 5th ed., §9.4; Tse and Viswanath, 2005, §8.3).
 
 `noise_var = 0` reduces to [`zf_equalizer`](@ref). `noise_var` must be nonnegative.
 """

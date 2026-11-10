@@ -673,7 +673,7 @@ Payload bits, CRC-16, encode, optional convolutional puncturing, modulate, AWGN,
 \sigma^2 = \frac{N_0}{2} = \frac{E_s}{2\,E_s/N_0}.
 ```
 
-  Information-bit ``E_b/N_0`` is this ratio divided by the MCS spectral efficiency, because one payload bit occupies ``1/\eta`` symbols. The noise calibration matches [`demodulate_soft`](@ref).
+  Information-bit ``E_b/N_0`` is this ratio divided by the MCS spectral efficiency, because one payload bit occupies ``1/\eta`` symbols. ``\eta`` counts payload bits only. A convolutional row feeds payload plus 16 CRC bits to [`conv_encode`](@ref), which appends 2 tail bits, so the mother word length is ``2(\texttt{payload}+18)`` before puncturing. ``\eta`` is not the nominal rate ``1/2``. The noise calibration matches [`demodulate_soft`](@ref): per-dimension ``\sigma^2 = N_0/2`` with ``N_0 = E_s / (E_s/N_0)``. This argument is not the positional ``E_b/N_0`` of [`awgn`](@ref).
 - `n_blocks`: number of transport blocks. Each block draws a fresh payload with `rand(0:1, payload_bits)` and fresh noise through `awgn`. Both use the global RNG.
 
 # Keywords

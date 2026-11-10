@@ -716,6 +716,27 @@ include("jakes_nakagami.jl")
 include("cdl.jl")
 include("bicm.jl")
 include("exit.jl")
+include("noise_contract.jl")
+
+@testset "Uncoded AWGN lab script" begin
+    root = pkgdir(CommToolkit)
+    script = joinpath(root, "demos", "lab_awgn_ber.jl")
+    # Pkg.test replaces LOAD_PATH and drops @stdlib. The script is a normal
+    # `julia --project=.` program, so the child gets the default path back.
+    sep = Sys.iswindows() ? ";" : ":"
+    cmd = setenv(
+        `$(Base.julia_cmd()) --project=$root $script`,
+        "JULIA_LOAD_PATH" => "@$(sep)@v#.#$(sep)@stdlib",
+    )
+    out = IOBuffer()
+    err = IOBuffer()
+    ok = success(pipeline(cmd; stdout=out, stderr=err))
+    if !ok
+        println(String(take!(out)))
+        println(String(take!(err)))
+    end
+    @test ok
+end
 
 @testset "Plots extension" begin
     @test_throws ErrorException plot_constellation(ComplexF64[1.0, -1.0], BPSK())

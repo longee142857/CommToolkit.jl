@@ -24,6 +24,8 @@ rx = awgn(modulate(bits, BPSK()), 8, 1)  # 8 dB Eb/N0
 ber(bits, demodulate(rx, BPSK()))
 ```
 
+`8` 是这次 BPSK 调用的 ``E_b/N_0``（dB）。`simulate_link` 的参数是 ``E_s/N_0``，`apply_channel` 是时域样本 SNR。软解调的 `noise_var` 是每实维 ``\sigma^2 = N_0/2``；复 `fir_channel` 的返回值和 `apply_mimo` 的 `noise_var` 是复噪声总功率 ``N_0``。各函数的文档写自己的定义。
+
 ## 功能
 
 公开接口从子模块扁平再导出，例如 `modulate(bits, BPSK())`。没有弃用别名。
@@ -57,6 +59,8 @@ ber(bits, demodulate(rx, BPSK()))
 ## 验证
 
 固定种子 `0x0c0de1162`。实线是理论值，标记是仿真；生成脚本是 `demos/validation_figure.jl`。`test/` 用双侧 Clopper–Pearson 区间（``\alpha = 10^{-4}``）。公式、出处和测试对应关系见 [验证矩阵](docs/src/validation.md)。下图仍是 v0.6 之前的四条曲线，其余对照在同一页。
+
+不画图的未编码对照是 [`demos/lab_awgn_ber.jl`](demos/lab_awgn_ber.jl)：局部随机数，打印 BPSK/QPSK 的样本数、错误数、BER、理论值和 Wilson 区间。错误数为 0 时上界不是无误码证明。`(7, 5)` 终止码把 `n` 个信息比特编成 `2(n+2)` 个编码比特，有效码率不是 `1/2`；这条脚本不含编码。
 
 ![BPSK、QPSK、16-QAM 在 AWGN 下以及 BPSK 在平坦瑞利下的蒙特卡洛误码率与闭式曲线](docs/src/assets/ber_validation.png)
 

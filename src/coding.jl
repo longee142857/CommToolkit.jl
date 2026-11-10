@@ -90,14 +90,14 @@ end
 Viterbi decoding of a tail-terminated block from [`conv_encode`](@ref).
 
 # Arguments
-- `coded`: hard channel bits in ``\{0, 1\}``, even length, including the two tail bits. Branch metric is the Hamming distance on each pair.
-- `llr`: finite channel LLRs of those coded bits, in the same order,
+- `coded`: hard channel bits, even length, including the two tail bits. After the even-length and termination checks, every entry must be `0` or `1`; any other integer raises `ArgumentError`. Branch metric is the Hamming distance on each pair. The method is selected by the element type (`Integer`), not by looking at the values.
+- `llr`: channel LLRs of those coded bits, in the same order,
 
 ```math
 L_j = \log\frac{p(y_j\mid c_j=0)}{p(y_j\mid c_j=1)}.
 ```
 
-  `AbstractFloat` inputs are LLRs. They are not probabilities in ``[0,1]`` and not hard bits stored as floating-point 0/1. Integer vectors take the hard-decision method.
+  A positive value favours bit 0. `AbstractFloat` inputs are always LLRs, including values in ``[0, 1]``. `0.0` adds nothing to the branch metric (an erasure). `1.0` is a finite LLR that favours bit 0; it is not the hard bit 1, and the decoder does not inspect the range to guess otherwise. Non-finite values (`NaN`, `±Inf`) raise `ArgumentError` before the length check. An empty float vector is finite and then fails the termination check. Integer vectors take the hard-decision method.
 
 # Returns
 The maximum-likelihood information bits. The ``K - 1`` tail bits are removed. Neither method is constrained to end in state 0; with a correct termination and few channel errors the best survivor ends at state 0 anyway. [`bcjr_decode`](@ref) and [`sova_decode`](@ref) do enforce termination.
@@ -122,7 +122,7 @@ P_b < \sum_{d=d_{\mathrm{free}}}^{\infty} c_d P_2(d),
 
 where ``c_d`` is the total information weight of the simple error events of Hamming weight ``d`` ([`distance_spectrum`](@ref)) and ``P_2(d)`` is the pairwise error probability of a weight-``d`` path, including the factor ``1/2`` on the middle binomial term when ``d`` is even (Proakis and Salehi, 5th ed., §8.2; Lin and Costello, 2nd ed., §12.3).
 
-With soft decisions and antipodal modulation the pairwise error probability at information-bit ``E_b/N_0`` is ``Q(\sqrt{2\,d\,R\,E_b/N_0})`` with ``R = 1/2`` (Proakis and Salehi, 5th ed., §8.2).
+With soft decisions and antipodal modulation the pairwise error probability at information-bit ``E_b/N_0`` is ``Q(\sqrt{2\,d\,R\,E_b/N_0})`` with the nominal mother rate ``R = 1/2`` (Proakis and Salehi, 5th ed., §8.2). [`conv_encode`](@ref) appends ``K-1 = 2`` tail bits, so a block of ``n`` information bits occupies ``2(n+2)`` coded bits and the block rate is ``n/(2(n+2))``, not ``1/2``. This page does not add a coded error-rate curve.
 """
 function viterbi_decode(coded::AbstractVector{<:Integer})
     n_coded = length(coded)
@@ -130,6 +130,9 @@ function viterbi_decode(coded::AbstractVector{<:Integer})
     n_sym = n_coded ÷ 2
     n_bits = n_sym - (CONV_K - 1)
     n_bits >= 0 || throw(ArgumentError("coded sequence is shorter than the termination tail"))
+    for b in coded
+        (b == 0 || b == 1) || throw(ArgumentError("hard bits must be 0 or 1, got $b"))
+    end
 
     n_states = CONV_N_STATES
     INF = typemax(Int) ÷ 2

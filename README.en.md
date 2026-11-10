@@ -24,6 +24,8 @@ rx = awgn(modulate(bits, BPSK()), 8, 1)  # 8 dB Eb/N0
 ber(bits, demodulate(rx, BPSK()))
 ```
 
+`8` is ``E_b/N_0`` in dB for this BPSK call. The argument of `simulate_link` is ``E_s/N_0``, and `apply_channel` is a time-domain sample SNR. `noise_var` in the soft demodulator is the per-real-dimension ``\sigma^2 = N_0/2``. The value returned by a complex `fir_channel`, and `noise_var` of `apply_mimo`, are the total complex noise power ``N_0``. Each function's docstring names its own quantity.
+
 ## Features
 
 The public API is re-exported flat from the submodules, for example `modulate(bits, BPSK())`. There are no deprecation aliases.
@@ -57,6 +59,8 @@ Source is in `src/`. Scripts that run on their own are in `demos/`. The AX7020 t
 ## Validation
 
 Fixed seed `0x0c0de1162`. Solid lines are theory and markers are simulation; the figure is produced by `demos/validation_figure.jl`. `test/` uses two-sided Clopper–Pearson intervals (``\alpha = 10^{-4}``). Formulas, sources, and the test correspondence are in the [validation matrix](docs/src/validation.md). The figure below is still the four curves from before v0.6; the other comparisons are on the same page.
+
+The plot-free uncoded check is [`demos/lab_awgn_ber.jl`](demos/lab_awgn_ber.jl). It uses a local RNG and prints, for BPSK and QPSK, the sample count, error count, BER, theory value, and a Wilson interval. An error count of 0 is not a claim that the BER is zero. The terminated `(7, 5)` code turns `n` information bits into `2(n+2)` coded bits, so the effective rate is not `1/2`. This script does not include coding.
 
 ![Monte Carlo bit error rates and closed-form curves for BPSK, QPSK, and 16-QAM on AWGN, and for BPSK on flat Rayleigh](docs/src/assets/ber_validation.png)
 
