@@ -2,14 +2,17 @@
 
 详细变更看这里；README 只做导航。
 
-## 未发布
+## 1.5.0
 
-还没有新版本号。`Project.toml` 仍是 1.2.2。下面已发布的 1.2.2 一节保持原样，包括其中「`viterbi_decode` 的行为没有改」这句当时的事实。这一节只记那之后、尚未发布的行为。
+噪声量契约，加上不画图的未编码 AWGN 实验和有限支撑根升余弦实验。坐在已发布的 1.2.2 之上。`Project.toml` 为 1.5.0。稳定导出清单不增删名字，根升余弦公式没有改。已发布的 1.2.2 一节保持原样，包括其中「`viterbi_decode` 的行为没有改」这句当时的事实；下面记的是那一版发布之后的行为。这版不表示全参数都稳，也不表示课程被覆盖。
 
 - 整数 `viterbi_decode`：偶数长度和终止尾这两项原有检查通过之后，硬比特必须是 0 或 1，其它整数抛 `ArgumentError`。空输入、奇数长度、短于终止尾的报错顺序不变。`AbstractFloat` 仍整段当作软 LLR，``[0.0, 1.0]`` 合法，正值偏向比特 0。`NaN` 与 ``\pm\infty`` 仍在长度检查之前拒绝。
 - `awgn` 与 OFDM 的 `apply_channel` 在 `snr_db = +Inf` 时不再从全局随机流抽取加性噪声。返回值仍是无噪声波形。同一条流上如果先走这条旁路再继续抽随机数，后续序列与已发布的 1.2.2 不同。衰落系数仍抽取。非正 `energy_per_bit` 和 `bits_per_symbol < 1` 仍先抛错。`fir_channel` 的 `+Inf` 本来就不抽加性噪声。
+- 各接口的噪声量写在自己的文档里，并由 `test/noise_contract.jl` 按定义核对：`awgn` 的 `snr_db` 是 ``E_b/N_0``，`simulate_link` 是 ``E_s/N_0``，OFDM 的 `apply_channel` 是时域样本 SNR，软解调的 `noise_var` 是每实维 ``\sigma^2 = N_0/2``，复 `fir_channel` 的返回值和 `apply_mimo` 的 `noise_var` 是复噪声总功率 ``N_0``。
 - `demos/lab_awgn_ber.jl` 由 `Pkg.test` 以独立进程调起。脚本内部 BPSK 与 QPSK 共用 Hastings ``\mathrm{erfc}`` 近似（手册 7.1.26 的界是绝对误差，不是相对误差）。这不是全仓唯一的理论实现：`test/reference.jl` 仍用 SpecialFunctions，`demos/polar_sc.jl` 另有一份近似。判据只覆盖 0/2/4 dB、各 20000 比特：每个点自己的 Wilson 区间 ``\alpha = 10^{-3}``，不是六个点合起来的一个 ``\alpha``；这几个工作点还要求错误数至少 30，不推广到 8 dB。
 - `demos/lab_rrc_isi.jl` 由 `Pkg.test` 以同一个 `addenv` 方式调起。不加载 Plots，不新增导出，也不加同步、均衡或 AWGN 误码。局部 `Xoshiro` 种子 `0x0c0de1162`，实 BPSK ``\pm 1``。发端用 `apply_fir` 做全卷积，再 `matched_filter`，按已知下标抽样；不用 `pulse_shape` 的截尾，那条截尾仍是眼图辅助接口。升余弦只作参照。有限支撑的符号间隔残余按截断测量。眼图下界是 ``2(g_0-S)``，允许为负。错开一个样本只说明抽样相位不同。`test/rrc_lab.jl` 里的 BigFloat 参照不进入包依赖。
+- 测试范围：`test/runtests.jl` 与 `test/contract.jl` 的版本断言改为 `v"1.5.0"`。新增随 `Pkg.test` 运行的是 `test/noise_contract.jl`、`test/rrc_lab.jl`，以及上述两条 lab。子进程只把 `JULIA_LOAD_PATH` 盖成 `@:@stdlib`，`HOME` 与 `JULIA_DEPOT_PATH` 留给父进程。CV 对 `d5fea1edf4b8961bfbbb8e2d0bdf0d6857cb06e9` 做过隔离复核，那不是本版本整理提交的独立复核：Julia 1.10.10，`HOME=/tmp/review/empty-home`（没有 `.julia`），`JULIA_DEPOT_PATH=/tmp/review/cihome/.julia`，passwd-home 的 depot 前后都不存在；直接 RRC 脚本退出码 0（3.45 秒），`addenv` 继承环境退出码 0，完整 `Pkg.test` 退出码 0（101.9 秒，含两条 lab 与 Plots 7/7）。BigFloat 抽头最大差 1.99e-15，误差/界最大 0.351，同一组抽头的卷积 ``\gamma_n\sum|a_i b_i|`` 之比最大 0.87。眼界含负值，有限残余非单调。版本整理时另在 Julia 1.10.10、`HOME=/home/ubuntu`、未设置 `JULIA_DEPOT_PATH`（depot 为 `/home/ubuntu/.julia`）上跑过：`demos/lab_awgn_ber.jl` 退出码 0（2.39 秒），`demos/lab_rrc_isi.jl` 退出码 0（3.14 秒），完整 `Pkg.test` 退出码 0（147 秒，状态为 CommToolkit v1.5.0，含两条 lab 与 Plots 7/7）。这次是本提交前的运行，不是 CV 对 `d5fea1e` 的隔离复核。更新的 Julia、Documenter 和 coverage 不记成已经跑过。
+- 两处未修，本版不改滤波核心：`test/rrc_lab.jl` 里算出错相位预测的那段没有断言，`demos/lab_rrc_isi.jl` 里已有断言。既有 Float64 根升余弦一般式在 ``10^{-12}`` 分支之外、离奇点约 ``1.5\times 10^{-12}`` 处可能消减（``\beta=0.35`` 约 ``1.4\times 10^{-6}``，``\beta=0.22`` 约 ``5.4\times 10^{-5}``）。已扫整数网格的最近距离约 0.00649，没有打到该处。网格通过不是任意奇点邻域稳定。须先用真实合法的 `rrc_filter` 参数复现，再决定是否改核心。
 
 ## 1.2.2
 

@@ -2,7 +2,7 @@
 
 # CommToolkit.jl
 
-A baseband communications link simulator, currently **v1.2.2** ([`Project.toml`](Project.toml)). It matches Monte Carlo error rates to textbook closed-form formulas, and runs a teaching-level MCS / HARQ loop on AWGN. Author: 刘恒宇 (longee142857).
+A baseband communications link simulator, currently **v1.5.0** ([`Project.toml`](Project.toml)). It matches Monte Carlo error rates to textbook closed-form formulas, and runs a teaching-level MCS / HARQ loop on AWGN. Author: 刘恒宇 (longee142857).
 
 Names brought in by `using CommToolkit` are the stable surface, frozen under SemVer: removing a name, renaming it, or changing the meaning of a positional argument or an existing return value bumps the major version. Relative to 1.0.0, 1.x only adds. Per-release detail is in the [changelog](CHANGELOG.md).
 
