@@ -717,14 +717,15 @@ include("cdl.jl")
 include("bicm.jl")
 include("exit.jl")
 include("noise_contract.jl")
+include("rrc_lab.jl")
 
-@testset "Uncoded AWGN lab script" begin
+# Pkg.test replaces LOAD_PATH and drops @stdlib. addenv keeps the parent
+# environment, including HOME and JULIA_DEPOT_PATH, and overrides only
+# LOAD_PATH. `@` is this project; `@stdlib` supplies Printf. `@v#.#` is
+# left out so the shared default environment is not on the path.
+function _run_demo_script(name::String)
     root = pkgdir(CommToolkit)
-    script = joinpath(root, "demos", "lab_awgn_ber.jl")
-    # Pkg.test replaces LOAD_PATH and drops @stdlib. addenv keeps the parent
-    # environment, including HOME and JULIA_DEPOT_PATH, and overrides only
-    # LOAD_PATH. `@` is this project; `@stdlib` supplies Printf. `@v#.#` is
-    # left out so the shared default environment is not on the path.
+    script = joinpath(root, "demos", name)
     sep = Sys.iswindows() ? ";" : ":"
     cmd = addenv(
         `$(Base.julia_cmd()) --project=$root $script`,
@@ -737,7 +738,15 @@ include("noise_contract.jl")
         println(String(take!(out)))
         println(String(take!(err)))
     end
-    @test ok
+    return ok
+end
+
+@testset "Uncoded AWGN lab script" begin
+    @test _run_demo_script("lab_awgn_ber.jl")
+end
+
+@testset "RRC ISI lab script" begin
+    @test _run_demo_script("lab_rrc_isi.jl")
 end
 
 @testset "Plots extension" begin

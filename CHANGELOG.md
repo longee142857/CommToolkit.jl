@@ -9,6 +9,7 @@
 - 整数 `viterbi_decode`：偶数长度和终止尾这两项原有检查通过之后，硬比特必须是 0 或 1，其它整数抛 `ArgumentError`。空输入、奇数长度、短于终止尾的报错顺序不变。`AbstractFloat` 仍整段当作软 LLR，``[0.0, 1.0]`` 合法，正值偏向比特 0。`NaN` 与 ``\pm\infty`` 仍在长度检查之前拒绝。
 - `awgn` 与 OFDM 的 `apply_channel` 在 `snr_db = +Inf` 时不再从全局随机流抽取加性噪声。返回值仍是无噪声波形。同一条流上如果先走这条旁路再继续抽随机数，后续序列与已发布的 1.2.2 不同。衰落系数仍抽取。非正 `energy_per_bit` 和 `bits_per_symbol < 1` 仍先抛错。`fir_channel` 的 `+Inf` 本来就不抽加性噪声。
 - `demos/lab_awgn_ber.jl` 由 `Pkg.test` 以独立进程调起。脚本内部 BPSK 与 QPSK 共用 Hastings ``\mathrm{erfc}`` 近似（手册 7.1.26 的界是绝对误差，不是相对误差）。这不是全仓唯一的理论实现：`test/reference.jl` 仍用 SpecialFunctions，`demos/polar_sc.jl` 另有一份近似。判据只覆盖 0/2/4 dB、各 20000 比特：每个点自己的 Wilson 区间 ``\alpha = 10^{-3}``，不是六个点合起来的一个 ``\alpha``；这几个工作点还要求错误数至少 30，不推广到 8 dB。
+- `demos/lab_rrc_isi.jl` 由 `Pkg.test` 以同一个 `addenv` 方式调起。不加载 Plots，不新增导出，也不加同步、均衡或 AWGN 误码。局部 `Xoshiro` 种子 `0x0c0de1162`，实 BPSK ``\pm 1``。发端用 `apply_fir` 做全卷积，再 `matched_filter`，按已知下标抽样；不用 `pulse_shape` 的截尾，那条截尾仍是眼图辅助接口。升余弦只作参照。有限支撑的符号间隔残余按截断测量。眼图下界是 ``2(g_0-S)``，允许为负。错开一个样本只说明抽样相位不同。`test/rrc_lab.jl` 里的 BigFloat 参照不进入包依赖。
 
 ## 1.2.2
 

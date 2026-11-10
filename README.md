@@ -62,6 +62,8 @@ ber(bits, demodulate(rx, BPSK()))
 
 不画图的未编码对照是 [`demos/lab_awgn_ber.jl`](demos/lab_awgn_ber.jl)：局部随机数，在 0/2/4 dB 打印 BPSK/QPSK 的样本数、错误数、BER、理论值和逐点 Wilson 区间（每个点 ``\alpha = 10^{-3}``，不是六个点合在一起）。这几个工作点还要求错误数至少 30，这条要求不推广到 8 dB。错误数为 0 时上界不是无误码证明。脚本里 BPSK 与 QPSK 共用一条 ``Q(\sqrt{2\gamma})``，不是全仓唯一实现。`(7, 5)` 终止码把 `n` 个信息比特编成 `2(n+2)` 个编码比特，有效码率不是 `1/2`；这条脚本不含编码。
 
+不画图的根升余弦对照是 [`demos/lab_rrc_isi.jl`](demos/lab_rrc_isi.jl)。局部随机数，实 BPSK。发端全卷积、匹配滤波、按已知下标抽样。升余弦只作参照。残余是截断的测量。眼图下界是 ``2(g_0-S)``，允许为负。错一个样本只说明抽样相位不同，不是同步。`pulse_shape` 的截尾仍是眼图辅助接口，这条脚本不用它。
+
 ![BPSK、QPSK、16-QAM 在 AWGN 下以及 BPSK 在平坦瑞利下的蒙特卡洛误码率与闭式曲线](docs/src/assets/ber_validation.png)
 
 ```julia
