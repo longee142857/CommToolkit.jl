@@ -13,11 +13,15 @@
 # information bits into 2(n+2) coded bits, so the effective rate is
 # n/(2(n+2)), not 1/2.
 #
-# Pass rule, fixed before looking at a sample:
+# Pass rule, fixed before looking at a sample. It applies only to the
+# points below, not to other SNRs such as 8 dB:
 #   Eb/N0 ∈ {0, 2, 4} dB, 20_000 bits, both schemes
-#   two-sided Wilson interval at α = 1e-3
-#   theory lies inside the interval, and the error count is at least 30
+#   each point has its own two-sided Wilson interval at α = 1e-3
+#   (six separate intervals, not one experiment-wide α)
+#   theory lies inside that point's interval, and the error count is at least 30
 # A count of 0 is printed with its upper bound and does not pass.
+# BPSK and QPSK share ber_uncoded_awgn inside this file. test/reference.jl
+# and demos/polar_sc.jl keep their own copies.
 
 using Random
 using Printf
@@ -29,9 +33,12 @@ const LAB_SNRS = (0.0, 2.0, 4.0)
 const LAB_MIN_ERRORS = 30
 const LAB_SEED = 0x0c0de1162
 
-# Hastings rational approximation of erfc, relative error below 1.5e-7
-# (Abramowitz and Stegun, 7.1.26). The Wilson interval below is orders of
-# magnitude wider than that, at every point this script runs.
+# Hastings rational approximation of erfc (Abramowitz and Stegun, 7.1.26).
+# The handbook bound is an absolute error below 1.5e-7, not a relative one.
+# On [0, 6] the absolute error stays within about 1.4e-7; at x = 6 the
+# relative error is about 1%. At the 0/2/4 dB points below, the BER from
+# this approximation differs from the reference values by at most about 5e-8.
+# Each point's Wilson interval is much wider than that.
 function _erfc(x::Float64)
     x < 0 && return 2 - _erfc(-x)
     t = inv(1 + 0.3275911 * x)
@@ -117,7 +124,8 @@ function main()
     z = _z_twosided(LAB_ALPHA)
     println("Uncoded AWGN. Es = 1. Local Xoshiro seed ", string(LAB_SEED, base=16), ".")
     println("BPSK: Eb = Es. QPSK: Eb = Es/2. Per-dimension variance σ² = N0/2, N0 = Eb/(Eb/N0).")
-    println("Wilson interval, α = $LAB_ALPHA, z = $(round(z; digits=4)). Pass requires k ≥ $LAB_MIN_ERRORS and theory inside the interval.")
+    println("Per-point Wilson interval, α = $LAB_ALPHA at each SNR (not one α for all six points), z = $(round(z; digits=4)).")
+    println("These 0/2/4 dB points also require k ≥ $LAB_MIN_ERRORS and theory inside that point's interval. The error-count rule is not a claim about 8 dB.")
     @printf("%-6s %8s %8s %8s %12s %12s %12s %12s  %s\n",
             "scheme", "Eb/N0", "n", "errors", "BER", "theory", "lo", "hi", "note")
     ok = true

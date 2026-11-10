@@ -2,6 +2,14 @@
 
 详细变更看这里；README 只做导航。
 
+## 未发布
+
+还没有新版本号。`Project.toml` 仍是 1.2.2。下面已发布的 1.2.2 一节保持原样，包括其中「`viterbi_decode` 的行为没有改」这句当时的事实。这一节只记那之后、尚未发布的行为。
+
+- 整数 `viterbi_decode`：偶数长度和终止尾这两项原有检查通过之后，硬比特必须是 0 或 1，其它整数抛 `ArgumentError`。空输入、奇数长度、短于终止尾的报错顺序不变。`AbstractFloat` 仍整段当作软 LLR，``[0.0, 1.0]`` 合法，正值偏向比特 0。`NaN` 与 ``\pm\infty`` 仍在长度检查之前拒绝。
+- `awgn` 与 OFDM 的 `apply_channel` 在 `snr_db = +Inf` 时不再从全局随机流抽取加性噪声。返回值仍是无噪声波形。同一条流上如果先走这条旁路再继续抽随机数，后续序列与已发布的 1.2.2 不同。衰落系数仍抽取。非正 `energy_per_bit` 和 `bits_per_symbol < 1` 仍先抛错。`fir_channel` 的 `+Inf` 本来就不抽加性噪声。
+- `demos/lab_awgn_ber.jl` 由 `Pkg.test` 以独立进程调起。脚本内部 BPSK 与 QPSK 共用 Hastings ``\mathrm{erfc}`` 近似（手册 7.1.26 的界是绝对误差，不是相对误差）。这不是全仓唯一的理论实现：`test/reference.jl` 仍用 SpecialFunctions，`demos/polar_sc.jl` 另有一份近似。判据只覆盖 0/2/4 dB、各 20000 比特：每个点自己的 Wilson 区间 ``\alpha = 10^{-3}``，不是六个点合起来的一个 ``\alpha``；这几个工作点还要求错误数至少 30，不推广到 8 dB。
+
 ## 1.2.2
 
 教学 SOVA 的编码比特外信息。坐在 1.2.1（教学 Arikan polar SC）之上，是 1.x 内的增加：稳定导出清单不增删名字，`sova_decode` 增加关键字 `return_coded`（默认 `false`）。省略该关键字时返回值与 1.0–1.2.1 逐比特相同，已有名字的位置参数、返回值和默认都不改。`bcjr_decode`、`viterbi_decode`、`exit_decoder_transfer`、`simulate_link` 的行为没有改。`bicm_decode(...; decoder=:sova)` 成功调用仍是一次解调、仍不请求 `return_coded`；`iterations ≠ 1` 时依旧拒绝，只是报错文案改成「这条路径不迭代」。这是教学软输出 Viterbi，不是 MAP，不是 BCJR 的等价物，不是 Turbo 整机，也不是 NR。有意留在范围之外的仍是完整几何 TR 38.901 CDL、NR LDPC、NR polar、真 O-RAN。

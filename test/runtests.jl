@@ -721,12 +721,14 @@ include("noise_contract.jl")
 @testset "Uncoded AWGN lab script" begin
     root = pkgdir(CommToolkit)
     script = joinpath(root, "demos", "lab_awgn_ber.jl")
-    # Pkg.test replaces LOAD_PATH and drops @stdlib. The script is a normal
-    # `julia --project=.` program, so the child gets the default path back.
+    # Pkg.test replaces LOAD_PATH and drops @stdlib. addenv keeps the parent
+    # environment, including HOME and JULIA_DEPOT_PATH, and overrides only
+    # LOAD_PATH. `@` is this project; `@stdlib` supplies Printf. `@v#.#` is
+    # left out so the shared default environment is not on the path.
     sep = Sys.iswindows() ? ";" : ":"
-    cmd = setenv(
+    cmd = addenv(
         `$(Base.julia_cmd()) --project=$root $script`,
-        "JULIA_LOAD_PATH" => "@$(sep)@v#.#$(sep)@stdlib",
+        "JULIA_LOAD_PATH" => "@$(sep)@stdlib",
     )
     out = IOBuffer()
     err = IOBuffer()
